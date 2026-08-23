@@ -73,14 +73,15 @@
   #palette {
     flex: 0 0 auto;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 14px max(18px, env(safe-area-inset-bottom));
     background: var(--panel);
     border-top: 2px solid var(--edge);
     touch-action: none;
   }
+  .paletteRow { display: flex; justify-content: center; gap: 10px; }
 
   .mineralBtn {
     flex: 0 0 auto;
@@ -116,7 +117,7 @@
 
   .sideToggle {
     position: absolute;
-    top: 12px;
+    bottom: 12px;
     z-index: 2;
     display: flex;
     flex-direction: column;
@@ -127,29 +128,40 @@
   }
   #bankToggle { left: 12px; }
   #quantToggle { right: 12px; }
-  .sideToggleLabel {
+  .sideToggleLabel, .inlineToggleLabel {
     font-family: system-ui, sans-serif;
-    font-size: 11px;
+    font-size: 9px;
     font-weight: 700;
     color: var(--ink-dim);
-    letter-spacing: 0.03em;
   }
-  .sideToggleTrack {
+  .sideToggleTrack, .inlineToggleTrack {
     width: 20px;
     height: 34px;
     background: var(--edge);
     border: 2px solid var(--ink-dim);
     position: relative;
   }
-  .sideToggleKnob {
+  .sideToggleKnob, .inlineToggleKnob {
     position: absolute;
     left: 1px; right: 1px;
     bottom: 1px;
     height: 12px;
     background: var(--gold);
   }
-  .sideToggle.on .sideToggleKnob { bottom: calc(100% - 13px); }
-  .sideToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sideToggle.on .sideToggleKnob, .inlineToggle.on .inlineToggleKnob { bottom: calc(100% - 13px); }
+  .sideToggle:focus-visible, .inlineToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Reverse toggle — same look as the side toggles, but an inline flex
+     child next to the fader instead of pinned to a disc corner. */
+  .inlineToggle {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    touch-action: none;
+    cursor: pointer;
+  }
 
   #controls {
     flex: 0 0 auto;
@@ -169,8 +181,6 @@
     border-radius: 50%;
     border: 2px solid var(--edge);
     background: var(--gold);
-    color: var(--edge);
-    font-size: 17px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -179,6 +189,21 @@
   }
   #playBtn:active { background: var(--edge); }
   #playBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Drawn shapes, not a Unicode glyph (▶/❚❚ render at wildly different
+     proportions depending on the platform's fallback font) — this way the
+     icon is pixel-identical everywhere. */
+  .iconTriangle {
+    width: 0; height: 0;
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-left: 15px solid var(--edge);
+    margin-left: 4px;
+  }
+  .iconBars { display: none; gap: 5px; }
+  .iconBars span { width: 5px; height: 18px; background: var(--edge); display: block; }
+  #playBtn.playing .iconTriangle { display: none; }
+  #playBtn.playing .iconBars { display: flex; }
 
   #faderWrap { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; touch-action: none; }
   #faderTrack {
@@ -194,7 +219,7 @@
     position: absolute;
     top: -6px; bottom: -6px;
     width: 18px;
-    background: var(--accent);
+    background: var(--gold);
     border: 2px solid var(--edge);
     transform: translateX(-50%);
     pointer-events: none;
@@ -216,25 +241,35 @@
 <div id="stage">
 <div id="app">
   <div id="controls">
-    <button id="playBtn" type="button" aria-label="Play / Pause">&#9658;</button>
+    <button id="playBtn" type="button" aria-label="Play / Pause">
+      <span class="iconTriangle"></span>
+      <span class="iconBars"><span></span><span></span></span>
+    </button>
     <div id="faderWrap">
       <div id="faderTrack" role="slider" aria-label="Rotation speed" aria-valuemin="0" aria-valuemax="1" tabindex="0">
         <div id="faderThumb"></div>
       </div>
     </div>
+    <div id="reverseToggle" class="inlineToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Reverse">
+      <div class="inlineToggleLabel">RVRS</div>
+      <div class="inlineToggleTrack"><div class="inlineToggleKnob"></div></div>
+    </div>
   </div>
   <div id="discWrap">
     <canvas id="disc"></canvas>
     <div id="bankToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Sample bank">
-      <div class="sideToggleLabel">B</div>
+      <div class="sideToggleLabel">BANK</div>
       <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
     </div>
     <div id="quantToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Quantize">
-      <div class="sideToggleLabel">Q</div>
+      <div class="sideToggleLabel">QNTZ</div>
       <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
     </div>
   </div>
-  <div id="palette"></div>
+  <div id="palette">
+    <div class="paletteRow" id="paletteRowTop"></div>
+    <div class="paletteRow" id="paletteRowBottom"></div>
+  </div>
   <div id="dragGhost"></div>
 </div>
 </div>
@@ -361,7 +396,7 @@
   window.addEventListener('orientationchange', updateCanvasRect);
 
   document.addEventListener('touchmove', function (e) {
-    if (e.target.closest('input, button, .mineralBtn, .sideToggle, #faderTrack')) return;
+    if (e.target.closest('input, button, .mineralBtn, .sideToggle, .inlineToggle, #faderTrack')) return;
     e.preventDefault();
   }, { passive: false });
 
@@ -396,7 +431,7 @@
   var rotation = new RotationState();
 
   // ================= minerals placed on the disk =================
-  var disk = []; // {id, mineralIndex, thetaOffset, radiusFrac, muted, lastScheduledK, prevPhase, flashUntil}
+  var disk = []; // {id, mineralIndex, thetaOffset, radiusFrac, rotBase, muted, lastK, prevPhase, flashUntil}
   function uid() { return Math.random().toString(36).slice(2); }
 
   var DEAD_ZONE = 0.16;
@@ -460,7 +495,9 @@
   var FADER_MIN_SPEED = 0.5;
   var FADER_MAX_SPEED = 14;
   function faderToSpeed(t) { return FADER_MIN_SPEED * Math.pow(FADER_MAX_SPEED / FADER_MIN_SPEED, t); }
-  var desiredSpeed = faderToSpeed(0.502);
+  var desiredSpeed = faderToSpeed(0.502); // always a positive magnitude — direction comes from reverseOn
+  var reverseOn = false;
+  function signedTarget() { return reverseOn ? -desiredSpeed : desiredSpeed; }
   var LONG_TAU = 0.9;
   var SHORT_TAU = 0.05;
   var schedTimer = null;
@@ -492,39 +529,66 @@
   var SAFETY = 0.012;
   var scheduledEvents = []; // {time (perf), node}
 
+  // Speed can be negative now (reverse), so the Newton step's denominator
+  // must stay away from zero *without* clobbering its sign — Math.max alone
+  // would silently force every reverse computation to a positive (wrong)
+  // slope.
+  function clampAwayZero(v) { return Math.abs(v) < 1e-4 ? (v < 0 ? -1e-4 : 1e-4) : v; }
+
   function crossingTimeForTarget(target, nowPerf) {
     var gNow = rotation.angleAt(nowPerf);
-    var vNow = Math.max(rotation.speedAt(nowPerf), 1e-4);
+    var vNow = clampAwayZero(rotation.speedAt(nowPerf));
     var t = nowPerf + (target - gNow) / vNow;
     for (var i = 0; i < 6; i++) {
       var g = rotation.angleAt(t);
-      var v = Math.max(rotation.speedAt(t), 1e-4);
+      var v = clampAwayZero(rotation.speedAt(t));
       t = t - (g - target) / v;
     }
     return t;
   }
 
+  function scheduleCrossing(m, target, now) {
+    var t = crossingTimeForTarget(target, now);
+    if (t >= now) {
+      var node = playMineralAt(m.mineralIndex, perfToAudio(t));
+      if (node) scheduledEvents.push({ time: t, node: node });
+    }
+  }
+
+  // Direction-aware: forward, angle rises through the lookahead window and k
+  // searches upward from lastK; reverse, it falls and k searches downward.
+  // `lastK` is direction-agnostic bookkeeping — recalcSchedule clears it to
+  // undefined on every state change (including a reverse flip), so a stale
+  // bound from the other direction never leaks in.
   function schedulerTick() {
     if (!audioCtx) return;
     var now = nowSec();
     var windowEnd = now + LOOKAHEAD;
     var gNow = rotation.angleAt(now);
     var gEnd = rotation.angleAt(windowEnd);
+    var forward = gEnd >= gNow;
     for (var i = 0; i < disk.length; i++) {
       var m = disk[i];
       if (m.muted) continue;
       var base = mod2pi(-m.thetaOffset);
-      var kMin = Math.ceil((gNow - base) / (2 * Math.PI));
-      var kStart = Math.max(kMin, (m.lastScheduledK === undefined ? -Infinity : m.lastScheduledK) + 1);
-      for (var k = kStart; ; k++) {
-        var target = base + k * 2 * Math.PI;
-        if (target > gEnd) break;
-        var t = crossingTimeForTarget(target, now);
-        if (t >= now) {
-          var node = playMineralAt(m.mineralIndex, perfToAudio(t));
-          if (node) scheduledEvents.push({ time: t, node: node });
+      if (forward) {
+        var kMin = Math.ceil((gNow - base) / (2 * Math.PI));
+        var k = (m.lastK === undefined) ? kMin : Math.max(kMin, m.lastK + 1);
+        for (; ; k++) {
+          var target = base + k * 2 * Math.PI;
+          if (target > gEnd) break;
+          scheduleCrossing(m, target, now);
+          m.lastK = k;
         }
-        m.lastScheduledK = k;
+      } else {
+        var kMax = Math.floor((gNow - base) / (2 * Math.PI));
+        var k2 = (m.lastK === undefined) ? kMax : Math.min(kMax, m.lastK - 1);
+        for (; ; k2--) {
+          var target2 = base + k2 * 2 * Math.PI;
+          if (target2 < gEnd) break;
+          scheduleCrossing(m, target2, now);
+          m.lastK = k2;
+        }
       }
     }
     if (scheduledEvents.length > 200) {
@@ -542,12 +606,7 @@
       else kept.push(ev);
     }
     scheduledEvents = kept;
-    var gNow = rotation.angleAt(now);
-    for (var j = 0; j < disk.length; j++) {
-      var m = disk[j];
-      var base = mod2pi(-m.thetaOffset);
-      m.lastScheduledK = Math.ceil((gNow - base) / (2 * Math.PI)) - 1;
-    }
+    for (var j = 0; j < disk.length; j++) disk[j].lastK = undefined;
   }
 
   // ================= controls =================
@@ -558,15 +617,34 @@
     if (audioCtx.state === 'suspended') audioCtx.resume();
     var now = nowSec();
     if (!isPlaying) {
-      rotation.startRamp(desiredSpeed, LONG_TAU, now);
+      rotation.startRamp(signedTarget(), LONG_TAU, now);
       isPlaying = true;
-      playBtn.innerHTML = '&#10074;&#10074;';
+      playBtn.classList.add('playing');
     } else {
       rotation.startRamp(0, LONG_TAU, now);
       isPlaying = false;
-      playBtn.innerHTML = '&#9658;';
+      playBtn.classList.remove('playing');
     }
     recalcSchedule();
+  });
+
+  var reverseToggle = document.getElementById('reverseToggle');
+  function setReverse(v) {
+    reverseOn = v;
+    // 'on' class positions the knob at the top (shared with the side
+    // toggles); default/forward is meant to show "up", so it's applied for
+    // the *non*-reversed state here, inverted from how B/Q use it.
+    reverseToggle.classList.toggle('on', !v);
+    reverseToggle.setAttribute('aria-checked', v ? 'true' : 'false');
+    if (audioCtx && isPlaying) {
+      rotation.startRamp(signedTarget(), LONG_TAU, nowSec());
+      recalcSchedule();
+    }
+  }
+  setReverse(false);
+  reverseToggle.addEventListener('pointerdown', function (e) { e.preventDefault(); setReverse(!reverseOn); });
+  reverseToggle.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setReverse(!reverseOn); }
   });
 
   var faderTrack = document.getElementById('faderTrack');
@@ -578,7 +656,7 @@
     faderThumb.style.left = (faderT * 100) + '%';
     desiredSpeed = faderToSpeed(faderT);
     if (live && audioCtx && isPlaying) {
-      rotation.startRamp(desiredSpeed, SHORT_TAU, nowSec());
+      rotation.startRamp(signedTarget(), SHORT_TAU, nowSec());
       recalcSchedule();
     }
   }
@@ -606,14 +684,18 @@
   });
 
   // ================= palette DOM + drag & drop =================
-  var paletteEl = document.getElementById('palette');
+  // Staggered 2-row layout: top row 4, bottom row 5 — centering each row
+  // independently (same gap/button size) naturally interleaves them, no
+  // manual offset math needed.
+  var paletteRowTop = document.getElementById('paletteRowTop');
+  var paletteRowBottom = document.getElementById('paletteRowBottom');
   MINERALS.forEach(function (slot, idx) {
     var btn = document.createElement('div');
     btn.className = 'mineralBtn';
     btn.style.backgroundImage = 'url(minerals/' + slot.num + '.png)';
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'mineral ' + slot.num);
-    paletteEl.appendChild(btn);
+    (idx < 4 ? paletteRowTop : paletteRowBottom).appendChild(btn);
     slot.btnEl = btn;
 
     btn.addEventListener('pointerdown', function (e) {
@@ -643,12 +725,14 @@
     if (hit === -1) return;
     canvas.setPointerCapture(e.pointerId);
     disk[hit].muted = true;
-    drag = { mode: 'move', mineralIndex: hit, x: e.clientX, y: e.clientY, valid: true, caught: false };
+    drag = { mode: 'move', mineralIndex: hit, x: e.clientX, y: e.clientY, valid: true, caught: false, willDelete: false };
   });
   canvas.addEventListener('pointermove', function (e) {
     if (drag && drag.mode === 'move') {
       drag.x = e.clientX; drag.y = e.clientY;
-      drag.valid = evalDrop(drag.x, drag.y).valid;
+      var ev = evalDrop(drag.x, drag.y);
+      drag.valid = ev.valid;
+      drag.willDelete = ev.radiusFrac > 1.02; // past the rim — release here deletes it, not just a snap-back
       drag.caught = isNearQuantLine(drag.x, drag.y);
     }
   });
@@ -700,7 +784,7 @@
     var rotBase = rotation.angleAt(nowSec());
     if (drag.mode === 'new') {
       disk.push({ id: uid(), mineralIndex: drag.mineralIndex, thetaOffset: thetaOffset, radiusFrac: radiusFrac,
-                  rotBase: rotBase, muted: false, lastScheduledK: -Infinity, prevPhase: 0, flashUntil: -1 });
+                  rotBase: rotBase, muted: false, lastK: undefined, prevPhase: 0, flashUntil: -1 });
       ghost = { mode: 'snapback', mineralIndex: disk.length - 1, x: drag.x, y: drag.y, start: nowSec() };
     } else {
       var m = disk[drag.mineralIndex];
@@ -916,7 +1000,9 @@
       var flashing = false;
       if (!m.muted) {
         var phase = mod2pi(gRaw + m.thetaOffset);
-        if (m.prevPhase - phase > Math.PI) m.flashUntil = now + 0.14;
+        // abs() because a wrap looks like a big jump either way depending on
+        // direction — forward wraps ~2pi down to ~0, reverse wraps ~0 up to ~2pi.
+        if (Math.abs(m.prevPhase - phase) > Math.PI) m.flashUntil = now + 0.14;
         m.prevPhase = phase;
         flashing = now < m.flashUntil;
       }
@@ -936,12 +1022,15 @@
 
       var slot = MINERALS[m.mineralIndex];
       var lifted = isDragMove;
+      var willDelete = isDragMove && drag.willDelete;
       var dotR = R * (flashing ? 0.075 : lifted ? 0.07 : MINERAL_DOT_FRAC);
       ctx2d.globalAlpha = lifted ? 0.85 : (m.muted ? 0.4 : 1);
       // shadowBlur is a real per-draw cost on some mobile canvas backends —
-      // only pay for it while there's an actual glow to show.
+      // only pay for it while there's an actual glow to show. Dragged past
+      // the rim (about to be deleted, not just repositioned) it glows red
+      // instead of the mineral's own color — a clear "letting go removes it" cue.
       if (flashing || lifted) {
-        ctx2d.shadowColor = slot.color;
+        ctx2d.shadowColor = willDelete ? THEME.danger : slot.color;
         ctx2d.shadowBlur = flashing ? 24 : 14;
       }
 
