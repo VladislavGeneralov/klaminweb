@@ -76,9 +76,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding: max(12px, env(safe-area-inset-top)) 14px 10px;
+    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
     background: var(--panel);
-    border-bottom: 2px solid var(--edge);
+    border-top: 2px solid var(--edge);
     touch-action: none;
   }
 
@@ -116,7 +116,7 @@
 
   .sideToggle {
     position: absolute;
-    top: max(12px, env(safe-area-inset-top));
+    top: 12px;
     z-index: 2;
     display: flex;
     flex-direction: column;
@@ -156,9 +156,9 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
+    padding: max(14px, env(safe-area-inset-top)) 18px 14px;
     background: var(--panel);
-    border-top: 2px solid var(--edge);
+    border-bottom: 2px solid var(--edge);
     touch-action: auto;
   }
 
@@ -215,7 +215,14 @@
 <body>
 <div id="stage">
 <div id="app">
-  <div id="palette"></div>
+  <div id="controls">
+    <button id="playBtn" type="button" aria-label="Play / Pause">&#9658;</button>
+    <div id="faderWrap">
+      <div id="faderTrack" role="slider" aria-label="Rotation speed" aria-valuemin="0" aria-valuemax="1" tabindex="0">
+        <div id="faderThumb"></div>
+      </div>
+    </div>
+  </div>
   <div id="discWrap">
     <canvas id="disc"></canvas>
     <div id="bankToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Sample bank">
@@ -227,14 +234,7 @@
       <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
     </div>
   </div>
-  <div id="controls">
-    <button id="playBtn" type="button" aria-label="Play / Pause">&#9658;</button>
-    <div id="faderWrap">
-      <div id="faderTrack" role="slider" aria-label="Rotation speed" aria-valuemin="0" aria-valuemax="1" tabindex="0">
-        <div id="faderThumb"></div>
-      </div>
-    </div>
-  </div>
+  <div id="palette"></div>
   <div id="dragGhost"></div>
 </div>
 </div>
@@ -658,16 +658,35 @@
     drag = null;
   });
 
+  function returnToPalette(paletteIndex, fromX, fromY) {
+    var slot = MINERALS[paletteIndex];
+    var btnRect = slot.btnEl.getBoundingClientRect();
+    ghost = { mode: 'return', num: slot.num, x: fromX, y: fromY,
+              toX: btnRect.left + btnRect.width / 2, toY: btnRect.top + btnRect.height / 2, start: nowSec() };
+  }
+
   function rejectDrag() {
+    // dead-zone (or any other non-outside-rim) reject: still on/over the
+    // disc, so it snaps back to wherever it already was.
     if (drag.mode === 'move') {
       disk[drag.mineralIndex].muted = false;
       ghost = { mode: 'snapback', mineralIndex: drag.mineralIndex, x: drag.x, y: drag.y, start: nowSec() };
     } else {
-      var slot = MINERALS[drag.mineralIndex];
-      var btnRect = slot.btnEl.getBoundingClientRect();
-      ghost = { mode: 'return', num: slot.num, x: drag.x, y: drag.y,
-                toX: btnRect.left + btnRect.width / 2, toY: btnRect.top + btnRect.height / 2, start: nowSec() };
+      returnToPalette(drag.mineralIndex, drag.x, drag.y);
     }
+    drag = null;
+  }
+
+  // Dragging an existing mineral off the disc entirely (past the rim, not
+  // just into the dead zone) removes it from the disc — it flies back to
+  // its palette source, same as a rejected brand-new placement.
+  function removeDraggedMineral() {
+    var diskIdx = drag.mineralIndex;
+    var paletteIdx = disk[diskIdx].mineralIndex;
+    var fromX = drag.x, fromY = drag.y;
+    disk.splice(diskIdx, 1);
+    recalcSchedule(); // cancels/drops the removed stone's own pending scheduled audio too
+    returnToPalette(paletteIdx, fromX, fromY);
     drag = null;
   }
 
@@ -694,7 +713,11 @@
 
   function finishDrag() {
     var ev = evalDrop(drag.x, drag.y);
-    if (!ev.valid) { rejectDrag(); return; }
+    if (!ev.valid) {
+      if (drag.mode === 'move' && ev.radiusFrac > 1.02) { removeDraggedMineral(); return; }
+      rejectDrag();
+      return;
+    }
 
     var now = nowSec();
     var diskZero = rotation.angleAt(now);
