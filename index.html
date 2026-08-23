@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Klamin — spike</title>
+<style>
+  /*
+    Unified token set — every color in the app (CSS and canvas both) traces
+    back to this list. JS reads these at load via getComputedStyle so canvas
+    drawing never hardcodes a color that could drift from here. See README
+    "Visual style" section for what each token means.
+  */
+  :root {
+    --bg: #000000;
+    --panel: #171310;
+    --ink: #ece6da;
+    --ink-dim: #8c8375;
+    --accent: #e3a458;
+    --accent-dim: #7a5a34;
+    --edge: #0e0b08;
+    --gold: #d4af37;
+    --vinyl: #241608;
+    --danger: #c4503c;
+    --ivory: #f2ede2;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, sans-serif;
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #stage {
+    min-height: 100svh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+  }
+
+  #app {
+    width: 100%;
+    max-width: 480px;
+    height: 100svh;
+    height: 100dvh;
+    max-height: 900px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+
+  @media (min-width: 520px) {
+    #app {
+      border: 1px solid #2a231a;
+      box-shadow: 0 30px 90px rgba(0,0,0,0.55);
+      max-height: 860px;
+    }
+  }
+
+  #palette {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: max(12px, env(safe-area-inset-top)) 14px 10px;
+    background: var(--panel);
+    border-bottom: 2px solid var(--edge);
+    touch-action: none;
+  }
+
+  .mineralBtn {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    touch-action: none;
+    cursor: grab;
+  }
+
+  #discWrap { flex: 1 1 auto; position: relative; min-height: 0; }
+  #disc { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  /* Dragged-from-palette preview — a real DOM element with position:fixed so
+     it renders above the palette panel too, not clipped by canvas/#app. */
+  #dragGhost {
+    position: fixed;
+    left: 0; top: 0;
+    width: 46px; height: 46px;
+    margin-left: -23px; margin-top: -23px;
+    pointer-events: none;
+    z-index: 100;
+    display: none;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  #dragGhost.valid { filter: drop-shadow(0 0 6px var(--accent)); }
+  #dragGhost.caught { filter: drop-shadow(0 0 10px var(--gold)); }
+  #dragGhost.invalid { filter: drop-shadow(0 0 6px var(--danger)); }
+
+  .sideToggle {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    touch-action: none;
+    cursor: pointer;
+  }
+  #bankToggle { left: 12px; }
+  #quantToggle { right: 12px; }
+  .sideToggleLabel {
+    font-family: system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-dim);
+    letter-spacing: 0.03em;
+  }
+  .sideToggleTrack {
+    width: 20px;
+    height: 34px;
+    background: var(--edge);
+    border: 2px solid var(--ink-dim);
+    position: relative;
+  }
+  .sideToggleKnob {
+    position: absolute;
+    left: 1px; right: 1px;
+    bottom: 1px;
+    height: 12px;
+    background: var(--gold);
+  }
+  .sideToggle.on .sideToggleKnob { bottom: calc(100% - 13px); }
+  .sideToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 2px solid var(--edge);
+    touch-action: auto;
+  }
+
+  #playBtn {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 2px solid var(--edge);
+    background: var(--gold);
+    color: var(--edge);
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  #playBtn:active { background: var(--edge); }
+  #playBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #faderWrap { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; touch-action: none; }
+  #faderTrack {
+    position: relative;
+    flex: 1 1 auto;
+    height: 30px;
+    background: var(--edge);
+    border: 2px solid var(--edge);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.6);
+    touch-action: none;
+  }
+  #faderThumb {
+    position: absolute;
+    top: -6px; bottom: -6px;
+    width: 18px;
+    background: var(--accent);
+    border: 2px solid var(--edge);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  #faderThumb::after {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 2px; height: 60%;
+    background: var(--edge);
+    transform: translate(-50%, -50%);
+  }
+  #faderTrack:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="stage">
+<div id="app">
+  <div id="palette"></div>
+  <div id="discWrap">
+    <canvas id="disc"></canvas>
+    <div id="bankToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Sample bank">
+      <div class="sideToggleLabel">B</div>
+      <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
+    </div>
+    <div id="quantToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Quantize">
+      <div class="sideToggleLabel">Q</div>
+      <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
+    </div>
+  </div>
+  <div id="controls">
+    <button id="playBtn" type="button" aria-label="Play / Pause">&#9658;</button>
+    <div id="faderWrap">
+      <div id="faderTrack" role="slider" aria-label="Rotation speed" aria-valuemin="0" aria-valuemax="1" tabindex="0">
+        <div id="faderThumb"></div>
+      </div>
+    </div>
+  </div>
+  <div id="dragGhost"></div>
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ================= theme: single source of truth, read from CSS =================
+  var rootStyle = getComputedStyle(document.documentElement);
+  function cssVar(name) { return rootStyle.getPropertyValue(name).trim(); }
+  var THEME = {
+    bg: cssVar('--bg'), panel: cssVar('--panel'), ink: cssVar('--ink'),
+    inkDim: cssVar('--ink-dim'), accent: cssVar('--accent'), accentDim: cssVar('--accent-dim'),
+    edge: cssVar('--edge'), gold: cssVar('--gold'), vinyl: cssVar('--vinyl'),
+    danger: cssVar('--danger'), ivory: cssVar('--ivory')
+  };
+  function hexToRgba(hex, a) {
+    var h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map(function (c) { return c + c; }).join('');
+    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+  // Colors that are the same on every single frame the render loop draws —
+  // computed once here instead of re-parsing hex and building a new string
+  // 60 times a second for values that never change.
+  var COLOR_QUANT_GRID_ON = hexToRgba(THEME.gold, 0.4);
+  var COLOR_QUANT_GRID_OFF = 'rgba(0,0,0,0.35)';
+  var COLOR_ZERO_MARK = hexToRgba(THEME.accent, 0.45);
+  var COLOR_PLAYHEAD_DIM = hexToRgba(THEME.gold, 0.55);
+  var COLOR_RING_VALID = hexToRgba(THEME.accent, 0.8);
+  var COLOR_RING_INVALID = hexToRgba(THEME.danger, 0.85);
+
+  // ================= minerals: 10 slots, 2 sample banks each =================
+  var OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  var decodeCtx = new OfflineCtx(1, 1, 44100);
+
+  var MINERAL_COLORS = ['#cbb9e8', '#e3a458', '#5b6068', '#4fae82', '#8c8375',
+                         '#c1503f', '#4fb3c2', '#3a2f45', '#d9c23a'];
+  var MINERALS = [];
+  for (var n = 1; n <= 9; n++) {
+    MINERALS.push({ num: n, color: MINERAL_COLORS[n - 1], banks: [null, null] });
+  }
+  MINERALS.forEach(function (slot) {
+    slot.img = new Image();
+    slot.img.src = 'minerals/' + slot.num + '.png';
+    [1, 2].forEach(function (bank) {
+      fetch('samples/' + slot.num + '/' + slot.num + '_' + bank + '.wav')
+        .then(function (r) { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
+        .then(function (ab) { return decodeCtx.decodeAudioData(ab); })
+        .then(function (buf) { slot.banks[bank - 1] = buf; })
+        .catch(function () { /* sample not present on disk yet */ });
+    });
+  });
+
+  var currentBank = 0;
+  var bankToggle = document.getElementById('bankToggle');
+  function setBank(b) {
+    currentBank = b;
+    bankToggle.classList.toggle('on', b === 1);
+    bankToggle.setAttribute('aria-checked', b === 1 ? 'true' : 'false');
+    recalcSchedule();
+  }
+  bankToggle.addEventListener('pointerdown', function (e) { e.preventDefault(); setBank(currentBank === 0 ? 1 : 0); });
+  bankToggle.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBank(currentBank === 0 ? 1 : 0); }
+  });
+
+  var quantizeOn = false;
+  var quantToggle = document.getElementById('quantToggle');
+  var QUANT_STEPS = 16;
+  function setQuantize(v) {
+    quantizeOn = v;
+    quantToggle.classList.toggle('on', v);
+    quantToggle.setAttribute('aria-checked', v ? 'true' : 'false');
+  }
+  quantToggle.addEventListener('pointerdown', function (e) { e.preventDefault(); setQuantize(!quantizeOn); });
+  quantToggle.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setQuantize(!quantizeOn); }
+  });
+
+  // ================= viewport / canvas sizing with sanity-check retry =================
+  var canvas = document.getElementById('disc');
+  var discWrap = document.getElementById('discWrap');
+  var ctx2d = canvas.getContext('2d');
+  var dpr = Math.max(window.devicePixelRatio || 1, 1);
+  var MIN_PLAUSIBLE = 100;
+  var sizeRetries = 0;
+  var cssW = 0, cssH = 0;
+  // canvas.getBoundingClientRect() is a forced-layout call — cheap once, but
+  // several call sites used to run it every rAF frame or on every raw
+  // pointermove (which can fire faster than rAF on some touchscreens). The
+  // layout here is fixed (no scroll, sized off svh), so the canvas only
+  // actually moves on a real resize — cache it and only refresh there.
+  var canvasRect = { left: 0, top: 0 };
+  function updateCanvasRect() {
+    var r = canvas.getBoundingClientRect();
+    canvasRect.left = r.left; canvasRect.top = r.top;
+  }
+
+  function applySize(rect) {
+    if (rect.width < MIN_PLAUSIBLE || rect.height < MIN_PLAUSIBLE) {
+      if (sizeRetries < 12) {
+        sizeRetries++;
+        requestAnimationFrame(function () { applySize(discWrap.getBoundingClientRect()); });
+      }
+      return;
+    }
+    sizeRetries = 0;
+    cssW = rect.width; cssH = rect.height;
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    updateCanvasRect();
+  }
+
+  var ro = new ResizeObserver(function (entries) {
+    for (var i = 0; i < entries.length; i++) applySize(entries[i].contentRect);
+  });
+  ro.observe(discWrap);
+  applySize(discWrap.getBoundingClientRect());
+  window.addEventListener('resize', updateCanvasRect);
+  window.addEventListener('orientationchange', updateCanvasRect);
+
+  document.addEventListener('touchmove', function (e) {
+    if (e.target.closest('input, button, .mineralBtn, .sideToggle, #faderTrack')) return;
+    e.preventDefault();
+  }, { passive: false });
+
+  // ================= clock: one clock for everything (perf time) =================
+  function nowSec() { return performance.now() / 1000; }
+  function mod2pi(a) { var m = a % (2 * Math.PI); return m < 0 ? m + 2 * Math.PI : m; }
+  function angDist(a, b) { var d = mod2pi(a - b); return Math.min(d, 2 * Math.PI - d); }
+
+  // ================= rotation state: exponential ramp segments =================
+  function RotationState() {
+    this.t0 = nowSec();
+    this.angle0 = 0;
+    this.v0 = 0;
+    this.vTarget = 0;
+    this.tau = 0.001;
+  }
+  RotationState.prototype.angleAt = function (t) {
+    var dt = t - this.t0;
+    if (dt <= 0) return this.angle0;
+    return this.angle0 + this.vTarget * dt + (this.v0 - this.vTarget) * this.tau * (1 - Math.exp(-dt / this.tau));
+  };
+  RotationState.prototype.speedAt = function (t) {
+    var dt = t - this.t0;
+    if (dt <= 0) return this.v0;
+    return this.vTarget + (this.v0 - this.vTarget) * Math.exp(-dt / this.tau);
+  };
+  RotationState.prototype.startRamp = function (vTarget, tau, now) {
+    var a = this.angleAt(now), v = this.speedAt(now);
+    this.angle0 = a; this.v0 = v; this.t0 = now;
+    this.vTarget = vTarget; this.tau = Math.max(tau, 0.001);
+  };
+  var rotation = new RotationState();
+
+  // ================= minerals placed on the disk =================
+  var disk = []; // {id, mineralIndex, thetaOffset, radiusFrac, muted, lastScheduledK, prevPhase, flashUntil}
+  function uid() { return Math.random().toString(36).slice(2); }
+
+  var DEAD_ZONE = 0.16;
+  var COLLISION_FRAC = 0.08;  // true-overlap radius — only used to verify a nudge actually cleared
+  var ASSIST_FRAC = 0.22;     // wide "nearby" zone: dropping this close to a stone nudges beside it instead of rejecting
+  var NUDGE_ANGLE = 0.35;     // radians, freeform nudge offset when assisted
+
+  function diskRadiusCss() { return Math.min(cssW, cssH) * 0.47; }
+
+  // Live drag preview only checks the dead zone — collisions are resolved
+  // (nudged, not rejected) at drop time in finishDrag, not on every pointermove.
+  function evalDrop(clientX, clientY) {
+    var Rcss = diskRadiusCss();
+    var dx = clientX - (canvasRect.left + cssW / 2);
+    var dy = clientY - (canvasRect.top + cssH / 2);
+    var distPx = Math.hypot(dx, dy);
+    var radiusFrac = Rcss > 0 ? distPx / Rcss : 0;
+    var worldAngle = mod2pi(Math.atan2(dx, -dy));
+    var valid = radiusFrac >= DEAD_ZONE && radiusFrac <= 1.02;
+    return { radiusFrac: radiusFrac, worldAngle: worldAngle, valid: valid };
+  }
+
+  // Whether a drag position is close enough to a quantize line to visually
+  // "catch" — a plain pixel distance (arc length at the drag's own radius),
+  // not an angle: the catch length is exactly one mineral's diameter.
+  var MINERAL_DOT_FRAC = 0.055; // matches the base dot radius drawn in draw()
+  function isNearQuantLine(clientX, clientY) {
+    if (!quantizeOn) return false;
+    var ev = evalDrop(clientX, clientY);
+    if (!ev.valid) return false;
+    var diskZero = rotation.angleAt(nowSec());
+    var theta = mod2pi(ev.worldAngle - diskZero);
+    var step = 2 * Math.PI / QUANT_STEPS;
+    var nearestLine = Math.round(theta / step) * step;
+    var Rcss = diskRadiusCss();
+    var arcPx = angDist(theta, nearestLine) * ev.radiusFrac * Rcss;
+    var mineralDiameterPx = 2 * MINERAL_DOT_FRAC * Rcss;
+    return arcPx < mineralDiameterPx;
+  }
+
+  function hitTestMineral(clientX, clientY) {
+    var Rcss = diskRadiusCss();
+    var now = nowSec();
+    var diskZero = rotation.angleAt(now);
+    var best = -1, bestDist = Infinity;
+    for (var i = 0; i < disk.length; i++) {
+      var m = disk[i];
+      var world = mod2pi(diskZero + m.thetaOffset);
+      var x = canvasRect.left + cssW / 2 + m.radiusFrac * Rcss * Math.sin(world);
+      var y = canvasRect.top + cssH / 2 - m.radiusFrac * Rcss * Math.cos(world);
+      var d = Math.hypot(x - clientX, y - clientY);
+      if (d < Math.max(30, Rcss * 0.09) && d < bestDist) { bestDist = d; best = i; }
+    }
+    return best;
+  }
+
+  // ================= audio =================
+  var audioCtx = null;
+  var clockOffset = 0; // perfSeconds - audioCtxSeconds
+  var isPlaying = false;
+  var FADER_MIN_SPEED = 0.5;
+  var FADER_MAX_SPEED = 14;
+  function faderToSpeed(t) { return FADER_MIN_SPEED * Math.pow(FADER_MAX_SPEED / FADER_MIN_SPEED, t); }
+  var desiredSpeed = faderToSpeed(0.502);
+  var LONG_TAU = 0.9;
+  var SHORT_TAU = 0.05;
+  var schedTimer = null;
+
+  function perfToAudio(pt) { return pt - clockOffset; }
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+    clockOffset = nowSec() - audioCtx.currentTime;
+    schedTimer = setInterval(schedulerTick, SCHED_INTERVAL_MS);
+  }
+
+  function playMineralAt(mineralIndex, audioTime) {
+    var slot = MINERALS[mineralIndex];
+    var buf = slot && slot.banks[currentBank];
+    if (!buf || !audioCtx) return null;
+    var src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(Math.max(audioTime, audioCtx.currentTime));
+    return src;
+  }
+
+  // ================= scheduler: audio-clock lookahead, never tied to rAF =================
+  var LOOKAHEAD = 0.15;
+  var SCHED_INTERVAL_MS = 40;
+  var SAFETY = 0.012;
+  var scheduledEvents = []; // {time (perf), node}
+
+  function crossingTimeForTarget(target, nowPerf) {
+    var gNow = rotation.angleAt(nowPerf);
+    var vNow = Math.max(rotation.speedAt(nowPerf), 1e-4);
+    var t = nowPerf + (target - gNow) / vNow;
+    for (var i = 0; i < 6; i++) {
+      var g = rotation.angleAt(t);
+      var v = Math.max(rotation.speedAt(t), 1e-4);
+      t = t - (g - target) / v;
+    }
+    return t;
+  }
+
+  function schedulerTick() {
+    if (!audioCtx) return;
+    var now = nowSec();
+    var windowEnd = now + LOOKAHEAD;
+    var gNow = rotation.angleAt(now);
+    var gEnd = rotation.angleAt(windowEnd);
+    for (var i = 0; i < disk.length; i++) {
+      var m = disk[i];
+      if (m.muted) continue;
+      var base = mod2pi(-m.thetaOffset);
+      var kMin = Math.ceil((gNow - base) / (2 * Math.PI));
+      var kStart = Math.max(kMin, (m.lastScheduledK === undefined ? -Infinity : m.lastScheduledK) + 1);
+      for (var k = kStart; ; k++) {
+        var target = base + k * 2 * Math.PI;
+        if (target > gEnd) break;
+        var t = crossingTimeForTarget(target, now);
+        if (t >= now) {
+          var node = playMineralAt(m.mineralIndex, perfToAudio(t));
+          if (node) scheduledEvents.push({ time: t, node: node });
+        }
+        m.lastScheduledK = k;
+      }
+    }
+    if (scheduledEvents.length > 200) {
+      scheduledEvents = scheduledEvents.filter(function (e) { return e.time > now - 1; });
+    }
+  }
+
+  function recalcSchedule() {
+    if (!audioCtx) return;
+    var now = nowSec();
+    var kept = [];
+    for (var i = 0; i < scheduledEvents.length; i++) {
+      var ev = scheduledEvents[i];
+      if (ev.time > now + SAFETY) { try { ev.node.stop(0); } catch (e) {} }
+      else kept.push(ev);
+    }
+    scheduledEvents = kept;
+    var gNow = rotation.angleAt(now);
+    for (var j = 0; j < disk.length; j++) {
+      var m = disk[j];
+      var base = mod2pi(-m.thetaOffset);
+      m.lastScheduledK = Math.ceil((gNow - base) / (2 * Math.PI)) - 1;
+    }
+  }
+
+  // ================= controls =================
+  var playBtn = document.getElementById('playBtn');
+
+  playBtn.addEventListener('click', function () {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var now = nowSec();
+    if (!isPlaying) {
+      rotation.startRamp(desiredSpeed, LONG_TAU, now);
+      isPlaying = true;
+      playBtn.innerHTML = '&#10074;&#10074;';
+    } else {
+      rotation.startRamp(0, LONG_TAU, now);
+      isPlaying = false;
+      playBtn.innerHTML = '&#9658;';
+    }
+    recalcSchedule();
+  });
+
+  var faderTrack = document.getElementById('faderTrack');
+  var faderThumb = document.getElementById('faderThumb');
+  var faderT = 0.502;
+
+  function applyFaderT(t, live) {
+    faderT = Math.max(0, Math.min(1, t));
+    faderThumb.style.left = (faderT * 100) + '%';
+    desiredSpeed = faderToSpeed(faderT);
+    if (live && audioCtx && isPlaying) {
+      rotation.startRamp(desiredSpeed, SHORT_TAU, nowSec());
+      recalcSchedule();
+    }
+  }
+  applyFaderT(faderT, false);
+
+  function faderXToT(clientX) {
+    var rect = faderTrack.getBoundingClientRect();
+    return (clientX - rect.left) / rect.width;
+  }
+
+  var faderDragging = false;
+  faderTrack.addEventListener('pointerdown', function (e) {
+    faderDragging = true;
+    faderTrack.setPointerCapture(e.pointerId);
+    applyFaderT(faderXToT(e.clientX), true);
+  });
+  faderTrack.addEventListener('pointermove', function (e) {
+    if (faderDragging) applyFaderT(faderXToT(e.clientX), true);
+  });
+  faderTrack.addEventListener('pointerup', function () { faderDragging = false; });
+  faderTrack.addEventListener('pointercancel', function () { faderDragging = false; });
+  faderTrack.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowLeft') { applyFaderT(faderT - 0.02, true); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { applyFaderT(faderT + 0.02, true); e.preventDefault(); }
+  });
+
+  // ================= palette DOM + drag & drop =================
+  var paletteEl = document.getElementById('palette');
+  MINERALS.forEach(function (slot, idx) {
+    var btn = document.createElement('div');
+    btn.className = 'mineralBtn';
+    btn.style.backgroundImage = 'url(minerals/' + slot.num + '.png)';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'mineral ' + slot.num);
+    paletteEl.appendChild(btn);
+    slot.btnEl = btn;
+
+    btn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      btn.setPointerCapture(e.pointerId);
+      drag = { mode: 'new', mineralIndex: idx, x: e.clientX, y: e.clientY, valid: false, caught: false };
+    });
+    btn.addEventListener('pointermove', function (e) {
+      if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
+        drag.x = e.clientX; drag.y = e.clientY;
+        drag.valid = evalDrop(drag.x, drag.y).valid;
+        drag.caught = isNearQuantLine(drag.x, drag.y);
+      }
+    });
+    btn.addEventListener('pointerup', function () {
+      if (drag && drag.mode === 'new' && drag.mineralIndex === idx) finishDrag();
+    });
+    btn.addEventListener('pointercancel', function () { drag = null; });
+  });
+
+  var drag = null; // {mode:'new'|'move', mineralIndex, x, y, valid}
+  var ghost = null; // transient reject animation: {mode:'snapback'|'return', ...}
+  var GHOST_DUR = 0.22;
+
+  canvas.addEventListener('pointerdown', function (e) {
+    var hit = hitTestMineral(e.clientX, e.clientY);
+    if (hit === -1) return;
+    canvas.setPointerCapture(e.pointerId);
+    disk[hit].muted = true;
+    drag = { mode: 'move', mineralIndex: hit, x: e.clientX, y: e.clientY, valid: true, caught: false };
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    if (drag && drag.mode === 'move') {
+      drag.x = e.clientX; drag.y = e.clientY;
+      drag.valid = evalDrop(drag.x, drag.y).valid;
+      drag.caught = isNearQuantLine(drag.x, drag.y);
+    }
+  });
+  canvas.addEventListener('pointerup', function () { if (drag && drag.mode === 'move') finishDrag(); });
+  canvas.addEventListener('pointercancel', function () {
+    if (drag && drag.mode === 'move') disk[drag.mineralIndex].muted = false;
+    drag = null;
+  });
+
+  function rejectDrag() {
+    if (drag.mode === 'move') {
+      disk[drag.mineralIndex].muted = false;
+      ghost = { mode: 'snapback', mineralIndex: drag.mineralIndex, x: drag.x, y: drag.y, start: nowSec() };
+    } else {
+      var slot = MINERALS[drag.mineralIndex];
+      var btnRect = slot.btnEl.getBoundingClientRect();
+      ghost = { mode: 'return', num: slot.num, x: drag.x, y: drag.y,
+                toX: btnRect.left + btnRect.width / 2, toY: btnRect.top + btnRect.height / 2, start: nowSec() };
+    }
+    drag = null;
+  }
+
+  function commitDrop(thetaOffset, radiusFrac) {
+    // rotBase: the disc's own angle at the exact moment this stone was set
+    // down. The image is drawn upright relative to that snapshot (not to
+    // thetaOffset) — it keeps whatever orientation it had while being
+    // carried (upright, same as the palette icon) and only spins by however
+    // much the disc turns *after* being placed. No jump at drop, because
+    // "upright" is already what the drag preview showed the whole time.
+    var rotBase = rotation.angleAt(nowSec());
+    if (drag.mode === 'new') {
+      disk.push({ id: uid(), mineralIndex: drag.mineralIndex, thetaOffset: thetaOffset, radiusFrac: radiusFrac,
+                  rotBase: rotBase, muted: false, lastScheduledK: -Infinity, prevPhase: 0, flashUntil: -1 });
+      ghost = { mode: 'snapback', mineralIndex: disk.length - 1, x: drag.x, y: drag.y, start: nowSec() };
+    } else {
+      var m = disk[drag.mineralIndex];
+      m.thetaOffset = thetaOffset; m.radiusFrac = radiusFrac; m.rotBase = rotBase; m.muted = false;
+      ghost = { mode: 'snapback', mineralIndex: drag.mineralIndex, x: drag.x, y: drag.y, start: nowSec() };
+    }
+    recalcSchedule();
+    drag = null;
+  }
+
+  function finishDrag() {
+    var ev = evalDrop(drag.x, drag.y);
+    if (!ev.valid) { rejectDrag(); return; }
+
+    var now = nowSec();
+    var diskZero = rotation.angleAt(now);
+    var thetaOffset = mod2pi(ev.worldAngle - diskZero);
+    var radiusFrac = Math.max(0.22, Math.min(0.92, ev.radiusFrac));
+    var excludeIdx = drag.mode === 'move' ? drag.mineralIndex : -1;
+
+    if (quantizeOn) {
+      // Angle always snaps to the nearest line. Radius doesn't affect sound,
+      // so several minerals sharing one line is fine — it's not a collision.
+      // A real collision is the same line AND close radius; resolve that by
+      // sliding along the radius (toward wherever you actually dropped),
+      // never by hopping to a different angular line.
+      var step = 2 * Math.PI / QUANT_STEPS;
+      thetaOffset = mod2pi(Math.round(thetaOffset / step) * step);
+      var guard = 0, collided = true;
+      while (collided && guard < 40) {
+        collided = false;
+        for (var qi2 = 0; qi2 < disk.length; qi2++) {
+          if (qi2 === excludeIdx) continue;
+          var occ = disk[qi2];
+          if (angDist(occ.thetaOffset, thetaOffset) > 0.001) continue; // different line, no conflict
+          if (Math.abs(occ.radiusFrac - radiusFrac) < COLLISION_FRAC) {
+            radiusFrac = occ.radiusFrac + (radiusFrac >= occ.radiusFrac ? 1 : -1) * COLLISION_FRAC * 1.05;
+            radiusFrac = Math.max(0.22, Math.min(0.92, radiusFrac));
+            collided = true;
+          }
+        }
+        guard++;
+      }
+      commitDrop(thetaOffset, radiusFrac);
+      return;
+    }
+
+    // freeform: dropping close to an existing stone nudges just beside it
+    // instead of rejecting the drop outright
+    var Rcss = diskRadiusCss();
+    var nearestDist = Infinity, nearestIdx = -1;
+    for (var i = 0; i < disk.length; i++) {
+      if (i === excludeIdx) continue;
+      var other = disk[i];
+      var oWorld = mod2pi(diskZero + other.thetaOffset);
+      var ox = canvasRect.left + cssW / 2 + other.radiusFrac * Rcss * Math.sin(oWorld);
+      var oy = canvasRect.top + cssH / 2 - other.radiusFrac * Rcss * Math.cos(oWorld);
+      var d = Math.hypot(ox - drag.x, oy - drag.y);
+      if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+    }
+    if (nearestIdx !== -1 && nearestDist < ASSIST_FRAC * Rcss) {
+      var otherTheta = disk[nearestIdx].thetaOffset;
+      var plus = mod2pi(otherTheta + NUDGE_ANGLE);
+      var minus = mod2pi(otherTheta - NUDGE_ANGLE);
+      thetaOffset = angDist(plus, thetaOffset) <= angDist(minus, thetaOffset) ? plus : minus;
+      for (var j = 0; j < disk.length; j++) {
+        if (j === excludeIdx) continue;
+        var arcDist = angDist(disk[j].thetaOffset, thetaOffset) * Math.max(radiusFrac, disk[j].radiusFrac) * Rcss;
+        if (arcDist < COLLISION_FRAC * Rcss * 0.9) { rejectDrag(); return; }
+      }
+    }
+    commitDrop(thetaOffset, radiusFrac);
+  }
+
+  // ================= render loop: sole source of truth for anything visual =================
+  // Quantize snapping is unconditional (always nearest slot), so the whole
+  // placeable area counts as "caught" while it's on — shown as a brighter,
+  // glowing gold ring instead of the plain accent ring used in freeform mode.
+  function drawCatchRing(x, y, radius, valid, caught) {
+    if (!valid) {
+      ctx2d.strokeStyle = COLOR_RING_INVALID;
+      ctx2d.lineWidth = 2;
+      ctx2d.shadowBlur = 0;
+    } else if (caught) {
+      ctx2d.strokeStyle = THEME.gold;
+      ctx2d.lineWidth = 3;
+      ctx2d.shadowColor = THEME.gold;
+      ctx2d.shadowBlur = 14;
+    } else {
+      ctx2d.strokeStyle = COLOR_RING_VALID;
+      ctx2d.lineWidth = 2;
+      ctx2d.shadowBlur = 0;
+    }
+    ctx2d.beginPath(); ctx2d.arc(x, y, radius, 0, Math.PI * 2); ctx2d.stroke();
+    ctx2d.shadowBlur = 0;
+  }
+
+  // Photos have transparent padding baked in around the irregular stone
+  // silhouette, so they're scaled up a bit to read at roughly the same size
+  // the old flat dots did. Falls back to the flat color dot while an image
+  // hasn't loaded yet (or is missing), same as the audio-side fallback.
+  var MINERAL_IMG_SCALE = 1.6;
+  function drawMineralImage(img, cx2, cy2, boxSize) {
+    if (!img || !img.complete || !img.naturalWidth) return false;
+    var target = boxSize * MINERAL_IMG_SCALE;
+    var scale = Math.min(target / img.naturalWidth, target / img.naturalHeight);
+    var dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+    ctx2d.drawImage(img, cx2 - dw / 2, cy2 - dh / 2, dw, dh);
+    return true;
+  }
+
+  var dragGhostEl = document.getElementById('dragGhost');
+  function updateDragGhostEl(now) {
+    if (drag && drag.mode === 'new') {
+      dragGhostEl.style.display = 'block';
+      dragGhostEl.style.left = drag.x + 'px';
+      dragGhostEl.style.top = drag.y + 'px';
+      dragGhostEl.style.opacity = '1';
+      dragGhostEl.style.backgroundImage = 'url(minerals/' + MINERALS[drag.mineralIndex].num + '.png)';
+      dragGhostEl.className = !drag.valid ? 'invalid' : (drag.caught ? 'caught' : 'valid');
+    } else if (ghost && ghost.mode === 'return') {
+      var tf = Math.min(1, (now - ghost.start) / GHOST_DUR);
+      var ease2 = 1 - Math.pow(1 - tf, 2);
+      dragGhostEl.style.display = 'block';
+      dragGhostEl.style.left = (ghost.x + (ghost.toX - ghost.x) * ease2) + 'px';
+      dragGhostEl.style.top = (ghost.y + (ghost.toY - ghost.y) * ease2) + 'px';
+      dragGhostEl.style.opacity = String(1 - tf * 0.3);
+      dragGhostEl.style.backgroundImage = 'url(minerals/' + ghost.num + '.png)';
+      dragGhostEl.className = 'valid';
+      if (tf >= 1) { ghost = null; dragGhostEl.style.display = 'none'; }
+    } else {
+      dragGhostEl.style.display = 'none';
+    }
+  }
+
+  function draw() {
+    var w = canvas.width, h = canvas.height;
+    if (!w || !h) { requestAnimationFrame(draw); return; }
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, cssW, cssH);
+
+    var cx = cssW / 2, cy = cssH / 2;
+    var R = diskRadiusCss();
+    var now = nowSec();
+    var gRaw = rotation.angleAt(now);
+    var diskAngle = mod2pi(gRaw);
+
+    // disk body — flat brown vinyl, no gradient
+    ctx2d.fillStyle = THEME.vinyl;
+    ctx2d.beginPath(); ctx2d.arc(cx, cy, R, 0, Math.PI * 2); ctx2d.fill();
+
+    ctx2d.strokeStyle = 'rgba(0,0,0,0.22)'; ctx2d.lineWidth = 1;
+    for (var gr = 1; gr <= 6; gr++) {
+      ctx2d.beginPath(); ctx2d.arc(cx, cy, R * (gr / 7), 0, Math.PI * 2); ctx2d.stroke();
+    }
+
+    // gold rim — thin
+    ctx2d.lineWidth = Math.max(1.5, R * 0.007); ctx2d.strokeStyle = THEME.gold;
+    ctx2d.beginPath(); ctx2d.arc(cx, cy, R - ctx2d.lineWidth / 2, 0, Math.PI * 2); ctx2d.stroke();
+
+    // dead zone ring — gold, like a record label boundary, same thickness as the outer rim
+    ctx2d.lineWidth = Math.max(1.5, R * 0.007); ctx2d.strokeStyle = THEME.gold;
+    ctx2d.beginPath(); ctx2d.arc(cx, cy, R * DEAD_ZONE, 0, Math.PI * 2); ctx2d.stroke();
+
+    // quantize grid — always present (like the grooves), gold only while quantize is on
+    ctx2d.save(); ctx2d.translate(cx, cy); ctx2d.rotate(diskAngle);
+    ctx2d.strokeStyle = quantizeOn ? COLOR_QUANT_GRID_ON : COLOR_QUANT_GRID_OFF;
+    ctx2d.lineWidth = 1;
+    for (var qi = 0; qi < QUANT_STEPS; qi++) {
+      var qa = qi * (2 * Math.PI / QUANT_STEPS);
+      ctx2d.beginPath();
+      ctx2d.moveTo(R * DEAD_ZONE * Math.sin(qa), -R * DEAD_ZONE * Math.cos(qa));
+      ctx2d.lineTo(R * Math.sin(qa), -R * Math.cos(qa));
+      ctx2d.stroke();
+    }
+    // cardinal markers — a small dot at the midpoint of the 0/4/8/12 lines (every 90°)
+    ctx2d.fillStyle = quantizeOn ? COLOR_QUANT_GRID_ON : COLOR_QUANT_GRID_OFF;
+    var cardMidR = R * (DEAD_ZONE + 1) / 2;
+    var cardDotR = Math.max(1.5, R * 0.012);
+    for (var qc = 0; qc < QUANT_STEPS; qc += 4) {
+      var qca = qc * (2 * Math.PI / QUANT_STEPS);
+      ctx2d.beginPath();
+      ctx2d.arc(cardMidR * Math.sin(qca), -cardMidR * Math.cos(qca), cardDotR, 0, Math.PI * 2);
+      ctx2d.fill();
+    }
+
+    // zero mark — a thin elongated triangle (needle), not just a stripe
+    var zeroHalfAngle = (6 * Math.PI / 180) / 2;
+    var r0 = R * DEAD_ZONE, r1 = R * (DEAD_ZONE + 0.1);
+    ctx2d.beginPath();
+    ctx2d.moveTo(-r0 * Math.sin(zeroHalfAngle), -r0 * Math.cos(zeroHalfAngle));
+    ctx2d.lineTo(r0 * Math.sin(zeroHalfAngle), -r0 * Math.cos(zeroHalfAngle));
+    ctx2d.lineTo(0, -r1);
+    ctx2d.closePath();
+    ctx2d.fillStyle = COLOR_ZERO_MARK;
+    ctx2d.fill();
+    ctx2d.restore();
+
+    // minerals
+    for (var i = 0; i < disk.length; i++) {
+      var m = disk[i];
+      var isDragMove = drag && drag.mode === 'move' && drag.mineralIndex === i;
+      var isSnap = ghost && ghost.mode === 'snapback' && ghost.mineralIndex === i;
+      var px, py;
+      var world = mod2pi(gRaw + m.thetaOffset);
+      var trueX = cx + m.radiusFrac * R * Math.sin(world);
+      var trueY = cy - m.radiusFrac * R * Math.cos(world);
+
+      var flashing = false;
+      if (!m.muted) {
+        var phase = mod2pi(gRaw + m.thetaOffset);
+        if (m.prevPhase - phase > Math.PI) m.flashUntil = now + 0.14;
+        m.prevPhase = phase;
+        flashing = now < m.flashUntil;
+      }
+
+      if (isDragMove) {
+        px = drag.x - canvasRect.left; py = drag.y - canvasRect.top;
+      } else if (isSnap) {
+        var t = Math.min(1, (now - ghost.start) / GHOST_DUR);
+        var ease = 1 - (1 - t) * (1 - t);
+        var fromX = ghost.x - canvasRect.left, fromY = ghost.y - canvasRect.top;
+        px = fromX + (trueX - fromX) * ease;
+        py = fromY + (trueY - fromY) * ease;
+        if (t >= 1) ghost = null;
+      } else {
+        px = trueX; py = trueY;
+      }
+
+      var slot = MINERALS[m.mineralIndex];
+      var lifted = isDragMove;
+      var dotR = R * (flashing ? 0.075 : lifted ? 0.07 : MINERAL_DOT_FRAC);
+      ctx2d.globalAlpha = lifted ? 0.85 : (m.muted ? 0.4 : 1);
+      // shadowBlur is a real per-draw cost on some mobile canvas backends —
+      // only pay for it while there's an actual glow to show.
+      if (flashing || lifted) {
+        ctx2d.shadowColor = slot.color;
+        ctx2d.shadowBlur = flashing ? 24 : 14;
+      }
+
+      // Spin by however much the disc has turned since this stone was set
+      // down (gRaw - rotBase), not by its absolute disc position — it keeps
+      // whatever orientation it had while being carried. Lifted (mid-reposition)
+      // it's off the disc entirely and stays upright.
+      ctx2d.save();
+      ctx2d.translate(px, py);
+      if (!lifted) ctx2d.rotate(gRaw - m.rotBase);
+      if (!drawMineralImage(slot.img, 0, 0, dotR * 2)) {
+        ctx2d.beginPath(); ctx2d.fillStyle = slot.color; ctx2d.arc(0, 0, dotR, 0, Math.PI * 2); ctx2d.fill();
+        ctx2d.lineWidth = 2; ctx2d.strokeStyle = THEME.edge; ctx2d.shadowBlur = 0;
+        ctx2d.beginPath(); ctx2d.arc(0, 0, dotR, 0, Math.PI * 2); ctx2d.stroke();
+      }
+      ctx2d.restore();
+      ctx2d.shadowBlur = 0;
+      ctx2d.globalAlpha = 1;
+
+      if (isDragMove) {
+        drawCatchRing(px, py, dotR + 6, drag.valid, drag.caught);
+      }
+    }
+
+    // dragged-from-palette preview lives in the #dragGhost DOM element (see
+    // below), not on canvas — canvas is clipped to discWrap and can't render
+    // above the palette panel while the ghost is still over it.
+    updateDragGhostEl(now);
+
+    // center hub — black dot
+    ctx2d.fillStyle = THEME.bg;
+    ctx2d.beginPath(); ctx2d.arc(cx, cy, R * 0.04, 0, Math.PI * 2); ctx2d.fill();
+
+    // fixed playhead marker (world space, angle 0 = top, never rotates) —
+    // a counterpart arrow to the zero mark, pointing inward, shorter and wider
+    var anyFlash = false;
+    for (var fi = 0; fi < disk.length; fi++) { if (now < disk[fi].flashUntil) { anyFlash = true; break; } }
+    var phHalfAngle = ((16 / 6) * Math.PI / 180) / 2;
+    var phBase = R * 1.055, phTip = R * 1.02;
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx + phBase * Math.sin(-phHalfAngle), cy - phBase * Math.cos(-phHalfAngle));
+    ctx2d.lineTo(cx + phBase * Math.sin(phHalfAngle), cy - phBase * Math.cos(phHalfAngle));
+    ctx2d.lineTo(cx, cy - phTip);
+    ctx2d.closePath();
+    ctx2d.fillStyle = anyFlash ? THEME.gold : COLOR_PLAYHEAD_DIM;
+    ctx2d.fill();
+
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
