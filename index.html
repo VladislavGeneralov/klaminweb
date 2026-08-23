@@ -242,20 +242,16 @@
   .iconRipple span:nth-child(1) { width: 18px; height: 18px; }
   .iconRipple span:nth-child(2) { width: 12px; height: 12px; }
   .iconRipple span:nth-child(3) { width: 6px; height: 6px; }
-  .iconTriangleLeft {
-    position: relative;
-    left: -1px;
-    width: 0; height: 0;
-    border-top: 6px solid transparent;
-    border-bottom: 6px solid transparent;
-    border-right: 9px solid currentColor;
-  }
-  /* REVERB's icon and label swap in place for a left-pointing arrow and
-     "EXIT" while its panel is open, rather than a second button appearing
-     elsewhere — same slot, same circle, different face. */
-  .reverbIconOpen, .reverbLabelOpen { display: none; }
+  /* REVERB's icon swaps in place for a small gold cross while its panel is
+     open, rather than a second button appearing elsewhere — same slot,
+     same circle, same center, different face. No label in the open state. */
+  .reverbIconOpen { display: none; color: var(--gold); }
   #reverbBtn.open .reverbIconClosed, #reverbBtn.open .reverbLabelClosed { display: none; }
-  #reverbBtn.open .reverbIconOpen, #reverbBtn.open .reverbLabelOpen { display: block; }
+  #reverbBtn.open .reverbIconOpen { display: block; }
+  /* The circle itself disappears into the panel behind it while open —
+     same background, no border — so only the cross reads, not a button
+     still sitting on top of the panel. */
+  #reverbBtn.open { background: var(--panel); border-color: var(--panel); }
   /* Full working width of the app frame (not the raw viewport — this is a
      phone instrument first even on desktop), roughly the height of the top
      controls bar. Holds one slider — see .faderTrackLook below. */
@@ -507,9 +503,8 @@
     </div>
     <button id="reverbBtn" class="roundCtrlBtn" type="button" aria-label="Reverb" aria-expanded="false">
       <span class="iconRipple reverbIconClosed"><span></span><span></span><span></span></span>
-      <span class="iconTriangleLeft reverbIconOpen"></span>
+      <span class="iconX reverbIconOpen"></span>
       <span class="roundCtrlLabel reverbLabelClosed">REVERB</span>
-      <span class="roundCtrlLabel reverbLabelOpen">EXIT</span>
     </button>
     <button id="clearBtn" class="roundCtrlBtn" type="button" aria-label="Clear all">
       <span class="iconX"></span>
@@ -869,66 +864,31 @@
     return src;
   }
 
-  // ================= reverb: native ConvolverNode, synthetic impulses =================
-  // A hand-rolled per-sample AudioWorklet reverb (like SUAQ26's Dattorro
-  // plate) is real, ongoing CPU/battery cost for as long as it's connected —
-  // ConvolverNode is native, FFT-based, and only costs what its impulse
-  // length demands, which is far cheaper on a phone. One send knob drives
-  // both send level and decay time together (a fuller-sounding reverb reads
-  // as needing a longer tail too), so a small fixed set of impulse
-  // responses is precomputed once — up front, not per drag-frame.
-  //
-  // Reassigning a live ConvolverNode's .buffer resets its internal state —
-  // a known Web Audio quirk (there's a standing W3C issue about it) — so
-  // swapping decay buckets mid-tail would cut the ringing reverb off and
-  // restart it from silence. Instead two convolvers (A/B) are kept ping-
-  // ponging: the target bucket loads into whichever one is currently idle,
-  // its gain ramps up while the other ramps down, and the loser gets
-  // disconnected once its ramp finishes (so steady-state cost stays at one
-  // active convolver, same as a single-node design — the second only ever
-  // costs anything during a brief transition). Both ramps use
-  // setTargetAtTime (already the app's standard tool for this, e.g. the
-  // speed fader and REV) rather than a fixed fade curve specifically
-  // because it always continues smoothly from wherever the gain currently
-  // sits — safe against the user dragging the slider again before a
-  // transition finishes, which a fixed 0-to-1 curve is not.
+  // ================= reverb: ported from SUAQ26's Dattorro plate =================
+  // A ConvolverNode-based engine was tried first (native, cheaper in theory)
+  // but a fixed impulse buffer fundamentally fights live decay-time control
+  // — every fix for one glitch (tail cut short on length-cap truncation,
+  // tail reset on buffer reassignment, tail reset again from blind ping-
+  // pong slot reuse) was working around that same mismatch, and it was
+  // still audibly misbehaving under fast slider movement. Dattorro is a
+  // real feedback delay network — decay/damping/wet are plain AudioParams
+  // that ramp smoothly via setTargetAtTime with no buffer to reassign and
+  // no state to reset, so none of that class of bug can happen here. The
+  // real cost: it's an AudioWorkletProcessor doing per-sample JS DSP
+  // continuously for as long as it's connected, unlike a ConvolverNode
+  // that can (in principle) sit idle for free — so the node itself is only
+  // ever connected into the graph while the knob is above 0, exactly
+  // mirroring how the mineral-source send tap already only connects above
+  // 0, and disconnected again the moment it drops back to 0.
   var reverbSendGain = null;
   var reverbHighpass = null;
-  var reverbConvA = null, reverbGainA = null;
-  var reverbConvB = null, reverbGainB = null;
-  var reverbBucketA = -1, reverbBucketB = -1; // which bucket idx each slot currently holds, -1 = idle/disconnected
-  var reverbActiveBucket = -1;
-  var reverbTimerA = null, reverbTimerB = null; // pending disconnect timers, one per slot
-  var reverbIRs = null;
-  var REVERB_IR_BUCKETS = 6;
+  var reverbNode = null; // AudioWorkletNode, created once the module finishes loading (async)
+  var reverbConnected = false; // whether reverbNode is currently wired into the graph
   var REVERB_MAX_WET = 0.9; // capped so the wet path can never fully swallow the dry signal
-  var REVERB_MIN_TAU = 0.3, REVERB_MAX_TAU = 1.6; // decay time constants, seconds
-  var REVERB_CROSSFADE_TAU = 0.27; // setTargetAtTime time constant for the bucket crossfade (3x the original 0.09)
-
-  function makeReverbImpulse(tau) {
-    var rate = audioCtx.sampleRate;
-    var length = Math.round(rate * Math.min(tau * 6, 3.5)); // ~6 time constants, capped for CPU
-    // The CPU cap above can (and at higher tau, does) truncate the buffer
-    // well before the exponential has actually decayed to silence. Without
-    // this fade, that's an audible hard stop, not a fade-out — "the
-    // tail doesn't finish, it just cuts off." A short fixed fade over the
-    // last 50ms forces the buffer to reach exactly 0 at its own end
-    // regardless of where the length cap lands.
-    var fadeLen = Math.min(length, Math.round(rate * 0.05));
-    var impulse = audioCtx.createBuffer(2, length, rate);
-    for (var ch = 0; ch < 2; ch++) {
-      var data = impulse.getChannelData(ch);
-      for (var i = 0; i < length; i++) {
-        var env = Math.exp(-i / (rate * tau));
-        if (i >= length - fadeLen) env *= (length - i) / fadeLen;
-        data[i] = (Math.random() * 2 - 1) * env;
-      }
-    }
-    return impulse;
-  }
+  var REVERB_MIN_DECAY = 0.3, REVERB_MAX_DECAY = 0.85; // Dattorro's own decay/feedback coefficient, not seconds — kept off 1.0 to avoid runaway sustain
 
   function ensureReverb() {
-    if (reverbConvA) return;
+    if (reverbSendGain) return; // graph nodes already set up (or being set up)
     reverbSendGain = audioCtx.createGain();
     reverbSendGain.gain.value = 0;
     // Highpass ahead of the tank so low end doesn't build up/muddy in the
@@ -939,70 +899,37 @@
     reverbHighpass.frequency.value = 100;
     reverbSendGain.connect(reverbHighpass);
 
-    reverbConvA = audioCtx.createConvolver(); reverbConvA.normalize = true;
-    reverbGainA = audioCtx.createGain(); reverbGainA.gain.value = 1;
-    reverbHighpass.connect(reverbConvA);
-    reverbConvA.connect(reverbGainA);
-    reverbGainA.connect(audioCtx.destination);
-
-    reverbConvB = audioCtx.createConvolver(); reverbConvB.normalize = true;
-    reverbGainB = audioCtx.createGain(); reverbGainB.gain.value = 0;
-    reverbConvB.connect(reverbGainB);
-    reverbGainB.connect(audioCtx.destination);
-    // reverbHighpass -> reverbConvB only gets connected during a crossfade
-
-    reverbIRs = [];
-    for (var i = 0; i < REVERB_IR_BUCKETS; i++) {
-      var t = i / (REVERB_IR_BUCKETS - 1);
-      reverbIRs.push(makeReverbImpulse(REVERB_MIN_TAU + t * (REVERB_MAX_TAU - REVERB_MIN_TAU)));
-    }
-    reverbActiveBucket = Math.round(reverbAmount * (REVERB_IR_BUCKETS - 1));
-    reverbBucketA = reverbActiveBucket;
-    reverbConvA.buffer = reverbIRs[reverbActiveBucket]; // slot A starts pre-loaded, no fade needed for the very first setup
-    reverbSendGain.gain.setTargetAtTime(reverbAmount * reverbAmount * REVERB_MAX_WET, audioCtx.currentTime, 0.03);
+    audioCtx.audioWorklet.addModule('reverb-processor.js').then(function () {
+      reverbNode = new AudioWorkletNode(audioCtx, 'DattorroReverb', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      // wet=1/dry=0: the node's own dry-passthrough is unused — each
+      // mineral already has its own direct-to-destination connection for
+      // that, so the node only ever needs to hand back its wet signal in
+      // full, with our own reverbSendGain being the sole level knob.
+      reverbNode.parameters.get('wet').value = 1;
+      reverbNode.parameters.get('dry').value = 0;
+      reverbNode.parameters.get('damping').value = 0.3; // tames the top end in the feedback loop — the processor's own built-in default (0.005) is near-none, too bright/harsh for percussive mineral hits
+      applyReverbAmount(reverbAmount); // sync now that the node actually exists
+    });
   }
 
-  // Picks which of the two slots to (re)target for `idx`, two rules deep:
-  // reuse a slot that already holds this exact bucket without ever touching
-  // its buffer (dragging back to a value visited a moment ago — the most
-  // common case while sliding back and forth — costs nothing and can't
-  // reset a still-ringing tail); otherwise repurpose whichever slot is
-  // currently *quieter* (not just "the other one" — blind ping-ponging was
-  // what let a fast back-and-forth drag land back on a slot that hadn't
-  // finished fading out yet, resetting it mid-tail).
-  function crossfadeReverbTo(idx) {
-    var now = audioCtx.currentTime;
-    var useA = reverbBucketA === idx ? true
-             : reverbBucketB === idx ? false
-             : reverbGainA.gain.value <= reverbGainB.gain.value;
-    var inConv = useA ? reverbConvA : reverbConvB, inGain = useA ? reverbGainA : reverbGainB;
-    var outConv = useA ? reverbConvB : reverbConvA, outGain = useA ? reverbGainB : reverbGainA;
-
-    if ((useA && reverbBucketA !== idx) || (!useA && reverbBucketB !== idx)) {
-      inConv.buffer = reverbIRs[idx];
-      if (useA) reverbBucketA = idx; else reverbBucketB = idx;
-      reverbHighpass.connect(inConv); // connecting an already-connected pair is a harmless no-op
+  function setReverbConnected(on) {
+    if (on === reverbConnected || !reverbNode) return;
+    if (on) {
+      reverbHighpass.connect(reverbNode);
+      reverbNode.connect(audioCtx.destination);
+    } else {
+      try { reverbHighpass.disconnect(reverbNode); } catch (e) {}
+      try { reverbNode.disconnect(audioCtx.destination); } catch (e) {}
     }
-    clearTimeout(useA ? reverbTimerA : reverbTimerB); // cancel this slot's own pending disconnect, it's wanted again
-
-    inGain.gain.setTargetAtTime(1, now, REVERB_CROSSFADE_TAU);
-    outGain.gain.setTargetAtTime(0, now, REVERB_CROSSFADE_TAU);
-
-    var outTimer = setTimeout(function () {
-      try { reverbHighpass.disconnect(outConv); } catch (e) {}
-      if (useA) reverbBucketB = -1; else reverbBucketA = -1;
-    }, REVERB_CROSSFADE_TAU * 1000 * 5 + 50); // ~5 time constants, i.e. settled
-    if (useA) reverbTimerB = outTimer; else reverbTimerA = outTimer;
-
-    reverbActiveBucket = idx;
+    reverbConnected = on;
   }
 
   function applyReverbAmount(t) {
-    if (!reverbConvA) return;
-    var idx = Math.round(t * (REVERB_IR_BUCKETS - 1)); // decay-time bucket stays a linear map of the knob
-    if (idx !== reverbActiveBucket) crossfadeReverbTo(idx);
+    if (!reverbNode) return; // worklet module still loading — ensureReverb's .then() calls this again once it's ready
+    setReverbConnected(t > 0);
     var wetT = t * t; // mix is a non-linear (quadratic) curve — more resolution low, dramatic near the top
     reverbSendGain.gain.setTargetAtTime(wetT * REVERB_MAX_WET, audioCtx.currentTime, 0.03);
+    reverbNode.parameters.get('decay').setTargetAtTime(REVERB_MIN_DECAY + t * (REVERB_MAX_DECAY - REVERB_MIN_DECAY), audioCtx.currentTime, 0.05);
   }
 
   // ================= scheduler: audio-clock lookahead, never tied to rAF =================
@@ -1110,6 +1037,15 @@
     }
     scheduledEvents = kept;
     for (var j = 0; j < disk.length; j++) disk[j].lastK = undefined;
+    // Wiping lastK here and leaving the refill to the next setInterval tick
+    // (up to SCHED_INTERVAL_MS away) was a real gap: recalcSchedule fires on
+    // every fader-drag pointermove with no throttling, so a fast, repeated
+    // drag could wipe a mineral's scheduled crossing and then have that
+    // exact crossing happen inside the gap before the timer got back around
+    // to it — by then gNow is already past it, so kMin silently excludes it
+    // as "already happened." Re-deriving immediately instead of waiting
+    // closes that window entirely.
+    schedulerTick();
   }
 
   // ================= controls =================
@@ -1310,12 +1246,20 @@
     paletteScrollbarThumb.style.left = thumbX + 'px';
   }
 
+  // #paletteViewport's own 10px side padding (CSS) is what gives the track
+  // its resting left inset — but that same padding was never added back on
+  // the far end, so max-scroll landed exactly where it would with no
+  // padding at all: the last 10px of track (the tail of the last button)
+  // sat past the clip edge, never scrollable into view. Widening the range
+  // by both paddings makes the end symmetric with the start — a matching
+  // clearance, not a clip.
+  var PALETTE_VIEWPORT_PAD = 10; // keep in sync with #paletteViewport's CSS padding
   function updatePaletteSizing() {
     var vw = paletteViewportEl.clientWidth;
     if (vw < 50) return; // not laid out yet
     var trackWidth = PALETTE_COLS_TOTAL * PALETTE_BTN + (PALETTE_COLS_TOTAL - 1) * PALETTE_GAP;
     paletteTrackEl.style.width = trackWidth + 'px';
-    paletteMaxOffset = Math.max(0, trackWidth - vw);
+    paletteMaxOffset = Math.max(0, trackWidth - vw + PALETTE_VIEWPORT_PAD * 2);
     setPaletteOffset(paletteOffset); // re-clamp against the new max
   }
   var paletteRO = new ResizeObserver(function () { updatePaletteSizing(); });
