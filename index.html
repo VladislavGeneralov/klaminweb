@@ -242,10 +242,10 @@
   .iconRipple span:nth-child(1) { width: 18px; height: 18px; }
   .iconRipple span:nth-child(2) { width: 12px; height: 12px; }
   .iconRipple span:nth-child(3) { width: 6px; height: 6px; }
-  /* REVERB's icon swaps in place for a small gold cross while its panel is
+  /* REVERB's icon swaps in place for a small grey cross while its panel is
      open, rather than a second button appearing elsewhere — same slot,
      same circle, same center, different face. No label in the open state. */
-  .reverbIconOpen { display: none; color: var(--gold); }
+  .reverbIconOpen { display: none; color: var(--ink-dim); }
   #reverbBtn.open .reverbIconClosed, #reverbBtn.open .reverbLabelClosed { display: none; }
   #reverbBtn.open .reverbIconOpen { display: block; }
   /* The circle itself disappears into the panel behind it while open —
@@ -275,6 +275,17 @@
     height: 100%;
     padding: 0 18px;
     gap: 16px;
+  }
+  #reverbPanelLabel {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    transform: translateX(-50%);
+    font-family: system-ui, sans-serif;
+    font-size: 7px;
+    font-weight: 400;
+    color: var(--ink-dim);
+    white-space: nowrap;
   }
   .reverbPanelSpacer { flex: 0 0 auto; }
   .reverbPanelSpacerWide { flex-basis: 52px; }
@@ -500,6 +511,7 @@
         </div>
         <div class="reverbPanelSpacer reverbPanelSpacerNarrow" aria-hidden="true"></div>
       </div>
+      <div id="reverbPanelLabel">REVERB</div>
     </div>
     <button id="reverbBtn" class="roundCtrlBtn" type="button" aria-label="Reverb" aria-expanded="false">
       <span class="iconRipple reverbIconClosed"><span></span><span></span><span></span></span>
