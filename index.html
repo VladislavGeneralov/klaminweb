@@ -85,8 +85,8 @@
 
   .mineralBtn {
     flex: 0 0 auto;
-    width: 42px;
-    height: 42px;
+    width: 50px;
+    height: 50px;
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
@@ -114,6 +114,41 @@
   #dragGhost.valid { filter: drop-shadow(0 0 6px var(--accent)); }
   #dragGhost.caught { filter: drop-shadow(0 0 10px var(--gold)); }
   #dragGhost.invalid { filter: drop-shadow(0 0 6px var(--danger)); }
+
+  /* Long-press menu: pick how many of a mineral to scatter evenly (Euclidean
+     spacing) around the disc. Narrow column of numbers, anchored to the
+     palette button that was held. */
+  #numberMenu {
+    position: fixed;
+    display: none;
+    flex-direction: column;
+    background: var(--panel);
+    border: 2px solid var(--edge);
+    z-index: 150;
+  }
+  .numberMenuItem {
+    width: 46px;
+    height: 34px;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--panel);
+    color: var(--ink-dim);
+    border-bottom: 1px solid var(--edge);
+    touch-action: manipulation;
+    cursor: pointer;
+    transition: background 0.4s ease-out, color 0.4s ease-out;
+  }
+  .numberMenuItem:last-child { border-bottom: none; }
+  /* Selection flash: snap to gold instantly (no transition), then the class
+     is removed on the next frame so the base rule's transition fades it
+     back — the "light up, then smoothly fade" the user asked for. */
+  .numberMenuItem.flash { background: var(--gold); color: var(--edge); transition: none; }
 
   .sideToggle {
     position: absolute;
@@ -271,6 +306,7 @@
     <div class="paletteRow" id="paletteRowBottom"></div>
   </div>
   <div id="dragGhost"></div>
+  <div id="numberMenu"></div>
 </div>
 </div>
 
@@ -396,7 +432,7 @@
   window.addEventListener('orientationchange', updateCanvasRect);
 
   document.addEventListener('touchmove', function (e) {
-    if (e.target.closest('input, button, .mineralBtn, .sideToggle, .inlineToggle, #faderTrack')) return;
+    if (e.target.closest('input, button, .mineralBtn, .sideToggle, .inlineToggle, #faderTrack, #numberMenu')) return;
     e.preventDefault();
   }, { passive: false });
 
@@ -440,6 +476,29 @@
   var NUDGE_ANGLE = 0.35;     // radians, freeform nudge offset when assisted
 
   function diskRadiusCss() { return Math.min(cssW, cssH) * 0.47; }
+
+  // Quantize collisions are resolved by sliding along the radius of a shared
+  // line, never by hopping to a different line — radius doesn't affect
+  // sound, so several minerals on one line is normal, not a conflict.
+  // Shared by manual quantized placement and Euclidean multi-placement.
+  function resolveLineRadius(thetaOffset, radiusFrac, excludeIdx) {
+    var guard = 0, collided = true;
+    while (collided && guard < 40) {
+      collided = false;
+      for (var i = 0; i < disk.length; i++) {
+        if (i === excludeIdx) continue;
+        var occ = disk[i];
+        if (angDist(occ.thetaOffset, thetaOffset) > 0.001) continue;
+        if (Math.abs(occ.radiusFrac - radiusFrac) < COLLISION_FRAC) {
+          radiusFrac = occ.radiusFrac + (radiusFrac >= occ.radiusFrac ? 1 : -1) * COLLISION_FRAC * 1.05;
+          radiusFrac = Math.max(0.22, Math.min(0.92, radiusFrac));
+          collided = true;
+        }
+      }
+      guard++;
+    }
+    return radiusFrac;
+  }
 
   // Live drag preview only checks the dead zone — collisions are resolved
   // (nudged, not rejected) at drop time in finishDrag, not on every pointermove.
@@ -684,6 +743,20 @@
   });
 
   // ================= palette DOM + drag & drop =================
+  // Three gestures on a palette button, disambiguated by one pending state:
+  // tap (released before the long-press timer, barely moved) previews the
+  // sound; drag (moved past a tiny threshold before the timer) is today's
+  // placement flow; long-press (timer fires first) opens the number menu.
+  var LONGPRESS_MS = 600;
+  var TAP_MOVE_THRESHOLD = 4; // px — filters finger tremor, not a deliberate drag
+  var pending = null; // {mineralIndex, btnEl, startX, startY, longPressFired, timer}
+
+  function triggerLongPress(p) {
+    if (!pending || pending !== p) return; // already resolved into a tap or a drag
+    pending.longPressFired = true;
+    openNumberMenu(p.mineralIndex, p.btnEl);
+  }
+
   // Staggered 2-row layout: top row 4, bottom row 5 — centering each row
   // independently (same gap/button size) naturally interleaves them, no
   // manual offset math needed.
@@ -701,20 +774,112 @@
     btn.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       btn.setPointerCapture(e.pointerId);
-      drag = { mode: 'new', mineralIndex: idx, x: e.clientX, y: e.clientY, valid: false, caught: false };
+      pending = {
+        mineralIndex: idx, btnEl: btn, startX: e.clientX, startY: e.clientY,
+        longPressFired: false, timer: null
+      };
+      pending.timer = setTimeout(function () { triggerLongPress(pending); }, LONGPRESS_MS);
     });
     btn.addEventListener('pointermove', function (e) {
-      if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
+      if (pending && pending.mineralIndex === idx && !pending.longPressFired) {
+        var dx = e.clientX - pending.startX, dy = e.clientY - pending.startY;
+        if (Math.hypot(dx, dy) > TAP_MOVE_THRESHOLD) {
+          clearTimeout(pending.timer);
+          pending = null;
+          drag = { mode: 'new', mineralIndex: idx, x: e.clientX, y: e.clientY, valid: false, caught: false };
+        }
+      } else if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
         drag.x = e.clientX; drag.y = e.clientY;
         drag.valid = evalDrop(drag.x, drag.y).valid;
         drag.caught = isNearQuantLine(drag.x, drag.y);
       }
     });
     btn.addEventListener('pointerup', function () {
-      if (drag && drag.mode === 'new' && drag.mineralIndex === idx) finishDrag();
+      if (pending && pending.mineralIndex === idx) {
+        clearTimeout(pending.timer);
+        var firedLongPress = pending.longPressFired;
+        pending = null;
+        if (!firedLongPress) {
+          ensureAudio();
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          playMineralAt(idx, audioCtx.currentTime);
+        }
+      } else if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
+        finishDrag();
+      }
     });
-    btn.addEventListener('pointercancel', function () { drag = null; });
+    btn.addEventListener('pointercancel', function () {
+      if (pending && pending.mineralIndex === idx) { clearTimeout(pending.timer); pending = null; }
+      if (drag && drag.mode === 'new' && drag.mineralIndex === idx) drag = null;
+    });
   });
+
+  // ================= long-press number menu: Euclidean scatter =================
+  var numberMenuEl = document.getElementById('numberMenu');
+  var numberMenuMineralIdx = -1;
+  var numberMenuOutsideHandler = null;
+
+  function openNumberMenu(mineralIdx, anchorEl) {
+    numberMenuMineralIdx = mineralIdx;
+    numberMenuEl.innerHTML = '';
+    for (var n = 1; n <= QUANT_STEPS; n++) {
+      var item = document.createElement('div');
+      item.className = 'numberMenuItem';
+      item.textContent = String(n);
+      (function (count) {
+        item.addEventListener('pointerdown', function (e) {
+          e.stopPropagation();
+          e.preventDefault();
+          placeEuclidean(numberMenuMineralIdx, count);
+          item.classList.add('flash');
+          void item.offsetWidth; // force the instant gold to paint before fading it back out
+          item.classList.remove('flash');
+          setTimeout(closeNumberMenu, 400);
+        });
+      })(n);
+      numberMenuEl.appendChild(item);
+    }
+
+    numberMenuEl.style.display = 'flex';
+    var rect = anchorEl.getBoundingClientRect();
+    var menuW = numberMenuEl.offsetWidth, menuH = numberMenuEl.offsetHeight;
+    var left = Math.max(6, Math.min(rect.left + rect.width / 2 - menuW / 2, window.innerWidth - menuW - 6));
+    var top = Math.max(6, rect.top - menuH - 8);
+    numberMenuEl.style.left = left + 'px';
+    numberMenuEl.style.top = top + 'px';
+
+    numberMenuOutsideHandler = function (e) {
+      if (!numberMenuEl.contains(e.target)) closeNumberMenu();
+    };
+    document.addEventListener('pointerdown', numberMenuOutsideHandler);
+  }
+
+  function closeNumberMenu() {
+    numberMenuEl.style.display = 'none';
+    numberMenuEl.innerHTML = '';
+    numberMenuMineralIdx = -1;
+    if (numberMenuOutsideHandler) {
+      document.removeEventListener('pointerdown', numberMenuOutsideHandler);
+      numberMenuOutsideHandler = null;
+    }
+  }
+
+  // Euclidean-style maximally-even spread of n copies of a mineral across
+  // the 16 quantize slots, starting at the zero mark (slot 0): the standard
+  // floor(i * steps / n) placement, same result as the classic
+  // "Euclidean rhythm" bresenham-style construction.
+  function placeEuclidean(mineralIdx, n) {
+    var rotBase = rotation.angleAt(nowSec());
+    for (var i = 0; i < n; i++) {
+      // continuous even spacing, not snapped to the 16-slot grid — only i=0
+      // lands exactly on the zero mark, the rest just divide the circle evenly
+      var thetaOffset = mod2pi(i * (2 * Math.PI / n));
+      var radiusFrac = resolveLineRadius(thetaOffset, 0.6, -1);
+      disk.push({ id: uid(), mineralIndex: mineralIdx, thetaOffset: thetaOffset, radiusFrac: radiusFrac,
+                  rotBase: rotBase, muted: false, lastK: undefined, prevPhase: 0, flashUntil: -1 });
+    }
+    recalcSchedule();
+  }
 
   var drag = null; // {mode:'new'|'move', mineralIndex, x, y, valid}
   var ghost = null; // transient reject animation: {mode:'snapback'|'return', ...}
@@ -810,28 +975,9 @@
     var excludeIdx = drag.mode === 'move' ? drag.mineralIndex : -1;
 
     if (quantizeOn) {
-      // Angle always snaps to the nearest line. Radius doesn't affect sound,
-      // so several minerals sharing one line is fine — it's not a collision.
-      // A real collision is the same line AND close radius; resolve that by
-      // sliding along the radius (toward wherever you actually dropped),
-      // never by hopping to a different angular line.
       var step = 2 * Math.PI / QUANT_STEPS;
       thetaOffset = mod2pi(Math.round(thetaOffset / step) * step);
-      var guard = 0, collided = true;
-      while (collided && guard < 40) {
-        collided = false;
-        for (var qi2 = 0; qi2 < disk.length; qi2++) {
-          if (qi2 === excludeIdx) continue;
-          var occ = disk[qi2];
-          if (angDist(occ.thetaOffset, thetaOffset) > 0.001) continue; // different line, no conflict
-          if (Math.abs(occ.radiusFrac - radiusFrac) < COLLISION_FRAC) {
-            radiusFrac = occ.radiusFrac + (radiusFrac >= occ.radiusFrac ? 1 : -1) * COLLISION_FRAC * 1.05;
-            radiusFrac = Math.max(0.22, Math.min(0.92, radiusFrac));
-            collided = true;
-          }
-        }
-        guard++;
-      }
+      radiusFrac = resolveLineRadius(thetaOffset, radiusFrac, excludeIdx);
       commitDrop(thetaOffset, radiusFrac);
       return;
     }
