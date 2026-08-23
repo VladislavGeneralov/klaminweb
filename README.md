@@ -4,6 +4,8 @@ Gridless circular sequencer for mobile browsers — a spinning disc instead of a
 
 Current state: a working single-file spike (`index.html`), no build step, no dependencies. Open it directly in a browser.
 
+Live: **https://vladislavgeneralov.github.io/klaminweb/**
+
 ## Why it's built this way
 
 The instrument lives or dies on timing precision and on the visual never lying about the audio, so a few decisions were made deliberately rather than by default:
