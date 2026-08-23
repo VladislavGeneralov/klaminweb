@@ -70,18 +70,36 @@
     }
   }
 
+  /* Palette: a 2x10 grid of minerals, windowed by however many columns
+     actually fit the screen at a fixed button size (not forced to exactly
+     5) — the rest is reached by sliding sideways from anywhere on the
+     palette (not just the buttons). Modest side padding so buttons aren't
+     flush with the screen edge; the clip boundary is still the real edge of
+     that padded area, not a narrower inner frame. */
   #palette {
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    align-items: center;
     gap: 8px;
-    padding: 14px 14px max(18px, env(safe-area-inset-bottom));
+    padding: 14px 10px max(18px, env(safe-area-inset-bottom));
     background: var(--panel);
     border-top: 2px solid var(--edge);
+  }
+  #paletteViewport {
+    width: 100%;
+    padding: 6px 0;
+    overflow: hidden;
     touch-action: none;
   }
-  .paletteRow { display: flex; justify-content: center; gap: 10px; }
+  #paletteTrack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    will-change: transform;
+    /* width set by JS: PALETTE_COLS_TOTAL * button size + gaps, kept in sync by hand */
+  }
+  .paletteRow { display: flex; gap: 14px; }
 
   .mineralBtn {
     flex: 0 0 auto;
@@ -90,6 +108,25 @@
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
+    touch-action: none;
+    cursor: grab;
+    transition: filter 0.4s ease-out;
+  }
+  /* Tap-to-preview flash: same snap-then-fade technique as the number menu,
+     via drop-shadow since these buttons are a background-image, not a flat
+     fill — it glows around the mineral's own silhouette. */
+  .mineralBtn.flash { filter: drop-shadow(0 0 10px var(--gold)) brightness(1.5); transition: none; }
+
+  #paletteScrollbar {
+    width: 100%;
+    height: 6px;
+    background: var(--edge);
+    position: relative;
+  }
+  #paletteScrollbarThumb {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    background: var(--accent-dim);
     touch-action: none;
     cursor: grab;
   }
@@ -134,8 +171,8 @@
     align-items: center;
     justify-content: center;
     font-family: system-ui, sans-serif;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 14px;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
     background: var(--panel);
     color: var(--ink-dim);
@@ -149,29 +186,103 @@
      is removed on the next frame so the base rule's transition fades it
      back — the "light up, then smoothly fade" the user asked for. */
   .numberMenuItem.flash { background: var(--gold); color: var(--edge); transition: none; }
+  .numberMenuItem.clearItem { border-top: 2px solid var(--edge); }
+  .numberMenuItem.clearItem.flash { background: var(--danger); color: var(--edge); }
 
+  /* Toggle rule, established once here and shared by every toggle in the
+     app (side-pinned or inline): the track's *height* — border included,
+     box-sizing is border-box globally — matches the fader's own 30px
+     height; its width is narrow (12px), independent of that. The label
+     always sits below the track, absolutely positioned out of flow — so a
+     toggle's track is what aligns with neighboring controls, never shifted
+     by its own label's width or presence. */
   .sideToggle {
     position: absolute;
     bottom: 12px;
     z-index: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
     touch-action: none;
     cursor: pointer;
   }
-  #bankToggle { left: 12px; }
   #quantToggle { right: 12px; }
-  .sideToggleLabel, .inlineToggleLabel {
+
+  /* Clear-all — a plain momentary button, not a toggle, so it skips the
+     track+knob+label-below shape — round, like the play button, and pinned
+     to the disc's bottom-left corner (mirrors QTZ's bottom-right). */
+  #clearBtn {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    z-index: 2;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--edge);
+    border: 2px solid var(--ink-dim);
+    color: var(--ink-dim);
     font-family: system-ui, sans-serif;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 400;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #clearBtn:active { background: var(--danger); color: var(--edge); border-color: var(--danger); }
+  #clearBtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  #clearConfirm {
+    position: fixed;
+    left: 0; top: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+  }
+  #clearConfirmBox {
+    display: flex;
+    gap: 2px;
+    background: var(--panel);
+    border: 2px solid var(--edge);
+  }
+  #clearConfirmBox button {
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    padding: 14px 20px;
+    background: var(--edge);
     color: var(--ink-dim);
+    border: none;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #clearClearBtn { color: var(--danger); }
+  #clearCancelBtn:active { background: var(--accent-dim); color: var(--edge); }
+  #clearClearBtn:active { background: var(--danger); color: var(--edge); }
+  .inlineToggle {
+    position: relative;
+    flex: 0 0 auto;
+    touch-action: none;
+    cursor: pointer;
+  }
+  .sideToggleLabel, .inlineToggleLabel {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 5px;
+    font-family: system-ui, sans-serif;
+    font-size: 8px;
+    font-weight: 400;
+    color: var(--ink-dim);
+    white-space: nowrap;
   }
   .sideToggleTrack, .inlineToggleTrack {
-    width: 20px;
-    height: 34px;
+    width: 15px;
+    height: 30px;
     background: var(--edge);
     border: 2px solid var(--ink-dim);
     position: relative;
@@ -185,18 +296,6 @@
   }
   .sideToggle.on .sideToggleKnob, .inlineToggle.on .inlineToggleKnob { bottom: calc(100% - 13px); }
   .sideToggle:focus-visible, .inlineToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  /* Reverse toggle — same look as the side toggles, but an inline flex
-     child next to the fader instead of pinned to a disc corner. */
-  .inlineToggle {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    touch-action: none;
-    cursor: pointer;
-  }
 
   #controls {
     flex: 0 0 auto;
@@ -286,27 +385,35 @@
       </div>
     </div>
     <div id="reverseToggle" class="inlineToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Reverse">
-      <div class="inlineToggleLabel">RVRS</div>
+      <div class="inlineToggleLabel">REV</div>
       <div class="inlineToggleTrack"><div class="inlineToggleKnob"></div></div>
     </div>
   </div>
   <div id="discWrap">
     <canvas id="disc"></canvas>
-    <div id="bankToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Sample bank">
-      <div class="sideToggleLabel">BANK</div>
-      <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
-    </div>
+    <button id="clearBtn" type="button" aria-label="Clear all">CLR</button>
     <div id="quantToggle" class="sideToggle" role="switch" aria-checked="false" tabindex="0" aria-label="Quantize">
-      <div class="sideToggleLabel">QNTZ</div>
+      <div class="sideToggleLabel">QTZ</div>
       <div class="sideToggleTrack"><div class="sideToggleKnob"></div></div>
     </div>
   </div>
   <div id="palette">
-    <div class="paletteRow" id="paletteRowTop"></div>
-    <div class="paletteRow" id="paletteRowBottom"></div>
+    <div id="paletteViewport">
+      <div id="paletteTrack">
+        <div class="paletteRow" id="paletteRowTop"></div>
+        <div class="paletteRow" id="paletteRowBottom"></div>
+      </div>
+    </div>
+    <div id="paletteScrollbar"><div id="paletteScrollbarThumb"></div></div>
   </div>
   <div id="dragGhost"></div>
   <div id="numberMenu"></div>
+  <div id="clearConfirm">
+    <div id="clearConfirmBox">
+      <button id="clearCancelBtn" type="button">CANCEL</button>
+      <button id="clearClearBtn" type="button">CLEAR</button>
+    </div>
+  </div>
 </div>
 </div>
 
@@ -339,39 +446,29 @@
   var COLOR_RING_VALID = hexToRgba(THEME.accent, 0.8);
   var COLOR_RING_INVALID = hexToRgba(THEME.danger, 0.85);
 
-  // ================= minerals: 10 slots, 2 sample banks each =================
+  // ================= minerals: 20 slots, one fixed sample each =================
+  // No bank concept anymore — each of the 20 is always itself, image and
+  // sound both, so minerals already on the disc never change underneath you.
   var OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   var decodeCtx = new OfflineCtx(1, 1, 44100);
 
   var MINERAL_COLORS = ['#cbb9e8', '#e3a458', '#5b6068', '#4fae82', '#8c8375',
-                         '#c1503f', '#4fb3c2', '#3a2f45', '#d9c23a'];
+                         '#c1503f', '#4fb3c2', '#3a2f45', '#d9c23a', '#7a2f3a',
+                         '#8fae64', '#2f4f7a', '#c98a3c', '#6b7a8f', '#9c6b9e',
+                         '#3f6b5c', '#a85c32', '#5c4a7a', '#b0895c', '#7a1f2e',
+                         '#5e8a9e', '#9e7a4a'];
   var MINERALS = [];
-  for (var n = 1; n <= 9; n++) {
-    MINERALS.push({ num: n, color: MINERAL_COLORS[n - 1], banks: [null, null] });
+  for (var n = 1; n <= 22; n++) {
+    MINERALS.push({ num: n, color: MINERAL_COLORS[n - 1], buffer: null });
   }
   MINERALS.forEach(function (slot) {
     slot.img = new Image();
     slot.img.src = 'minerals/' + slot.num + '.png';
-    [1, 2].forEach(function (bank) {
-      fetch('samples/' + slot.num + '/' + slot.num + '_' + bank + '.wav')
-        .then(function (r) { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
-        .then(function (ab) { return decodeCtx.decodeAudioData(ab); })
-        .then(function (buf) { slot.banks[bank - 1] = buf; })
-        .catch(function () { /* sample not present on disk yet */ });
-    });
-  });
-
-  var currentBank = 0;
-  var bankToggle = document.getElementById('bankToggle');
-  function setBank(b) {
-    currentBank = b;
-    bankToggle.classList.toggle('on', b === 1);
-    bankToggle.setAttribute('aria-checked', b === 1 ? 'true' : 'false');
-    recalcSchedule();
-  }
-  bankToggle.addEventListener('pointerdown', function (e) { e.preventDefault(); setBank(currentBank === 0 ? 1 : 0); });
-  bankToggle.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setBank(currentBank === 0 ? 1 : 0); }
+    fetch('samples/' + slot.num + '.wav')
+      .then(function (r) { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
+      .then(function (ab) { return decodeCtx.decodeAudioData(ab); })
+      .then(function (buf) { slot.buffer = buf; })
+      .catch(function () { /* sample not present on disk yet */ });
   });
 
   var quantizeOn = false;
@@ -432,7 +529,7 @@
   window.addEventListener('orientationchange', updateCanvasRect);
 
   document.addEventListener('touchmove', function (e) {
-    if (e.target.closest('input, button, .mineralBtn, .sideToggle, .inlineToggle, #faderTrack, #numberMenu')) return;
+    if (e.target.closest('input, button, .mineralBtn, .sideToggle, .inlineToggle, #faderTrack, #numberMenu, #paletteViewport, #paletteScrollbarThumb, #clearConfirm')) return;
     e.preventDefault();
   }, { passive: false });
 
@@ -573,7 +670,7 @@
 
   function playMineralAt(mineralIndex, audioTime) {
     var slot = MINERALS[mineralIndex];
-    var buf = slot && slot.banks[currentBank];
+    var buf = slot && slot.buffer;
     if (!buf || !audioCtx) return null;
     var src = audioCtx.createBufferSource();
     src.buffer = buf;
@@ -608,17 +705,34 @@
 
   function scheduleCrossing(m, target, now) {
     var t = crossingTimeForTarget(target, now);
-    if (t >= now) {
-      var node = playMineralAt(m.mineralIndex, perfToAudio(t));
-      if (node) scheduledEvents.push({ time: t, node: node });
+    // Newton's method / floating-point noise can land a crossing that's
+    // conceptually "right now" a hair before `now` — silently dropping
+    // anything t < now (rather than just t < now - SAFETY) is exactly what
+    // was eating triggers for minerals sitting right at the search boundary
+    // (near the zero mark at the moment scheduling starts, or right at a
+    // crossing when a ramp reset just fired). Clamp into the playable
+    // future instead of discarding.
+    if (t >= now - 0.01) {
+      var node = playMineralAt(m.mineralIndex, perfToAudio(Math.max(t, now)));
+      if (node) scheduledEvents.push({ time: Math.max(t, now), node: node });
     }
   }
 
   // Direction-aware: forward, angle rises through the lookahead window and k
   // searches upward from lastK; reverse, it falls and k searches downward.
   // `lastK` is direction-agnostic bookkeeping — recalcSchedule clears it to
-  // undefined on every state change (including a reverse flip), so a stale
-  // bound from the other direction never leaks in.
+  // undefined on every state change. But a reverse ramp doesn't flip
+  // direction instantly: it decelerates through zero over LONG_TAU, so the
+  // window's *net* direction (this tick's `forward`) can flip on its own,
+  // mid-ramp, with no recalcSchedule() called at that exact moment. Reusing
+  // lastK (built under the old direction's convention) across that flip is
+  // what was skipping a few crossings right at the transition, worse at
+  // higher speed since more crossings fall inside the transition window —
+  // so treat any change in `forward` since the last tick the same as an
+  // explicit recalc, for bookkeeping purposes only (already-queued audio is
+  // left alone; only the search-continuation state resets).
+  var schedulerLastForward = null;
+
   function schedulerTick() {
     if (!audioCtx) return;
     var now = nowSec();
@@ -626,6 +740,10 @@
     var gNow = rotation.angleAt(now);
     var gEnd = rotation.angleAt(windowEnd);
     var forward = gEnd >= gNow;
+    if (schedulerLastForward !== null && schedulerLastForward !== forward) {
+      for (var ri = 0; ri < disk.length; ri++) disk[ri].lastK = undefined;
+    }
+    schedulerLastForward = forward;
     for (var i = 0; i < disk.length; i++) {
       var m = disk[i];
       if (m.muted) continue;
@@ -673,7 +791,7 @@
 
   playBtn.addEventListener('click', function () {
     ensureAudio();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    audioCtx.resume(); // safe to call unconditionally; actual playback is scheduled ~40ms later by schedulerTick, well after this resolves
     var now = nowSec();
     if (!isPlaying) {
       rotation.startRamp(signedTarget(), LONG_TAU, now);
@@ -704,6 +822,27 @@
   reverseToggle.addEventListener('pointerdown', function (e) { e.preventDefault(); setReverse(!reverseOn); });
   reverseToggle.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setReverse(!reverseOn); }
+  });
+
+  // ================= clear all — button + confirm dialog =================
+  var clearBtn = document.getElementById('clearBtn');
+  var clearConfirmEl = document.getElementById('clearConfirm');
+  var clearCancelBtn = document.getElementById('clearCancelBtn');
+  var clearClearBtn = document.getElementById('clearClearBtn');
+
+  function openClearConfirm() { clearConfirmEl.style.display = 'flex'; }
+  function closeClearConfirm() { clearConfirmEl.style.display = 'none'; }
+
+  clearBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); openClearConfirm(); });
+  clearCancelBtn.addEventListener('pointerdown', function (e) { e.stopPropagation(); closeClearConfirm(); });
+  clearClearBtn.addEventListener('pointerdown', function (e) {
+    e.stopPropagation();
+    disk = [];
+    recalcSchedule();
+    closeClearConfirm();
+  });
+  clearConfirmEl.addEventListener('pointerdown', function (e) {
+    if (e.target === clearConfirmEl) closeClearConfirm(); // backdrop tap cancels too
   });
 
   var faderTrack = document.getElementById('faderTrack');
@@ -757,9 +896,78 @@
     openNumberMenu(p.mineralIndex, p.btnEl);
   }
 
-  // Staggered 2-row layout: top row 4, bottom row 5 — centering each row
-  // independently (same gap/button size) naturally interleaves them, no
-  // manual offset math needed.
+  // Palette is a 2x11 grid (22 minerals) windowed to however many columns
+  // fit the screen at a fixed button size — top row 1-11, bottom row 12-22,
+  // aligned into columns. Slid horizontally from anywhere on the palette,
+  // buttons included.
+  var PALETTE_BTN = 50, PALETTE_GAP = 14, PALETTE_COLS_TOTAL = 11;
+  var paletteEl = document.getElementById('palette');
+  var paletteViewportEl = document.getElementById('paletteViewport');
+  var paletteTrackEl = document.getElementById('paletteTrack');
+  var paletteScrollbarThumb = document.getElementById('paletteScrollbarThumb');
+  var paletteMaxOffset = 0;
+  var paletteOffset = 0;
+  var paletteSlide = null; // {startX, startOffset} — set by either a button or the bare background
+
+  function setPaletteOffset(px) {
+    paletteOffset = Math.max(0, Math.min(paletteMaxOffset, px));
+    paletteTrackEl.style.transform = 'translateX(-' + paletteOffset + 'px)';
+    var barWidth = paletteScrollbarThumb.parentElement.clientWidth;
+    var vw = paletteViewportEl.clientWidth;
+    var trackWidth = vw + paletteMaxOffset;
+    var thumbFrac = trackWidth > 0 ? Math.min(1, vw / trackWidth) : 1;
+    var thumbW = barWidth * thumbFrac;
+    var thumbX = paletteMaxOffset > 0 ? (paletteOffset / paletteMaxOffset) * (barWidth - thumbW) : 0;
+    paletteScrollbarThumb.style.width = thumbW + 'px';
+    paletteScrollbarThumb.style.left = thumbX + 'px';
+  }
+
+  function updatePaletteSizing() {
+    var vw = paletteViewportEl.clientWidth;
+    if (vw < 50) return; // not laid out yet
+    var trackWidth = PALETTE_COLS_TOTAL * PALETTE_BTN + (PALETTE_COLS_TOTAL - 1) * PALETTE_GAP;
+    paletteTrackEl.style.width = trackWidth + 'px';
+    paletteMaxOffset = Math.max(0, trackWidth - vw);
+    setPaletteOffset(paletteOffset); // re-clamp against the new max
+  }
+  var paletteRO = new ResizeObserver(function () { updatePaletteSizing(); });
+  paletteRO.observe(paletteViewportEl);
+  updatePaletteSizing();
+
+  // Bare background (the gaps, not a specific button) just slides the palette.
+  paletteViewportEl.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('.mineralBtn')) return; // a button's own listeners handle that
+    paletteViewportEl.setPointerCapture(e.pointerId);
+    paletteSlide = { startX: e.clientX, startOffset: paletteOffset };
+  });
+  paletteViewportEl.addEventListener('pointermove', function (e) {
+    if (paletteSlide) setPaletteOffset(paletteSlide.startOffset - (e.clientX - paletteSlide.startX));
+  });
+  paletteViewportEl.addEventListener('pointerup', function () { paletteSlide = null; });
+  paletteViewportEl.addEventListener('pointercancel', function () { paletteSlide = null; });
+
+  // The scrollbar thumb itself is also directly draggable (mainly a desktop
+  // affordance — a real scrollbar habit) with a tight, un-padded hit zone:
+  // just the thumb's own rendered box, nothing enlarged around it.
+  var scrollbarDrag = null; // {startX, startOffset}
+  paletteScrollbarThumb.addEventListener('pointerdown', function (e) {
+    e.stopPropagation();
+    paletteScrollbarThumb.setPointerCapture(e.pointerId);
+    scrollbarDrag = { startX: e.clientX, startOffset: paletteOffset };
+  });
+  paletteScrollbarThumb.addEventListener('pointermove', function (e) {
+    if (!scrollbarDrag) return;
+    var barWidth = paletteScrollbarThumb.parentElement.clientWidth;
+    var vw = paletteViewportEl.clientWidth;
+    var trackWidth = vw + paletteMaxOffset;
+    var thumbFrac = trackWidth > 0 ? Math.min(1, vw / trackWidth) : 1;
+    var usableBar = Math.max(1, barWidth - barWidth * thumbFrac);
+    var dx = e.clientX - scrollbarDrag.startX;
+    setPaletteOffset(scrollbarDrag.startOffset + (dx / usableBar) * paletteMaxOffset);
+  });
+  paletteScrollbarThumb.addEventListener('pointerup', function () { scrollbarDrag = null; });
+  paletteScrollbarThumb.addEventListener('pointercancel', function () { scrollbarDrag = null; });
+
   var paletteRowTop = document.getElementById('paletteRowTop');
   var paletteRowBottom = document.getElementById('paletteRowBottom');
   MINERALS.forEach(function (slot, idx) {
@@ -768,7 +976,7 @@
     btn.style.backgroundImage = 'url(minerals/' + slot.num + '.png)';
     btn.setAttribute('role', 'button');
     btn.setAttribute('aria-label', 'mineral ' + slot.num);
-    (idx < 4 ? paletteRowTop : paletteRowBottom).appendChild(btn);
+    (idx < 11 ? paletteRowTop : paletteRowBottom).appendChild(btn);
     slot.btnEl = btn;
 
     btn.addEventListener('pointerdown', function (e) {
@@ -776,18 +984,26 @@
       btn.setPointerCapture(e.pointerId);
       pending = {
         mineralIndex: idx, btnEl: btn, startX: e.clientX, startY: e.clientY,
-        longPressFired: false, timer: null
+        longPressFired: false, timer: null, startOffset: paletteOffset
       };
       pending.timer = setTimeout(function () { triggerLongPress(pending); }, LONGPRESS_MS);
     });
     btn.addEventListener('pointermove', function (e) {
       if (pending && pending.mineralIndex === idx && !pending.longPressFired) {
         var dx = e.clientX - pending.startX, dy = e.clientY - pending.startY;
-        if (Math.hypot(dx, dy) > TAP_MOVE_THRESHOLD) {
+        if (Math.abs(dx) > TAP_MOVE_THRESHOLD && Math.abs(dx) >= Math.abs(dy)) {
+          // predominantly sideways — sliding the palette, not dragging to the disc
+          clearTimeout(pending.timer);
+          paletteSlide = { startX: pending.startX, startOffset: pending.startOffset };
+          pending = null;
+          setPaletteOffset(paletteSlide.startOffset - (e.clientX - paletteSlide.startX));
+        } else if (Math.hypot(dx, dy) > TAP_MOVE_THRESHOLD) {
           clearTimeout(pending.timer);
           pending = null;
           drag = { mode: 'new', mineralIndex: idx, x: e.clientX, y: e.clientY, valid: false, caught: false };
         }
+      } else if (paletteSlide) {
+        setPaletteOffset(paletteSlide.startOffset - (e.clientX - paletteSlide.startX));
       } else if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
         drag.x = e.clientX; drag.y = e.clientY;
         drag.valid = evalDrop(drag.x, drag.y).valid;
@@ -795,14 +1011,21 @@
       }
     });
     btn.addEventListener('pointerup', function () {
+      if (paletteSlide) { paletteSlide = null; return; }
       if (pending && pending.mineralIndex === idx) {
         clearTimeout(pending.timer);
         var firedLongPress = pending.longPressFired;
         pending = null;
         if (!firedLongPress) {
           ensureAudio();
-          if (audioCtx.state === 'suspended') audioCtx.resume();
-          playMineralAt(idx, audioCtx.currentTime);
+          // resume() is async — starting playback before it actually
+          // resolves can silently drop the very first tap's sound.
+          Promise.resolve(audioCtx.resume()).then(function () {
+            playMineralAt(idx, audioCtx.currentTime);
+          });
+          btn.classList.add('flash');
+          void btn.offsetWidth;
+          btn.classList.remove('flash');
         }
       } else if (drag && drag.mode === 'new' && drag.mineralIndex === idx) {
         finishDrag();
@@ -811,6 +1034,7 @@
     btn.addEventListener('pointercancel', function () {
       if (pending && pending.mineralIndex === idx) { clearTimeout(pending.timer); pending = null; }
       if (drag && drag.mode === 'new' && drag.mineralIndex === idx) drag = null;
+      paletteSlide = null;
     });
   });
 
@@ -819,26 +1043,42 @@
   var numberMenuMineralIdx = -1;
   var numberMenuOutsideHandler = null;
 
+  function flashThenClose(item) {
+    item.classList.add('flash');
+    void item.offsetWidth; // force the instant gold to paint before fading it back out
+    item.classList.remove('flash');
+    setTimeout(closeNumberMenu, 400);
+  }
+
   function openNumberMenu(mineralIdx, anchorEl) {
     numberMenuMineralIdx = mineralIdx;
     numberMenuEl.innerHTML = '';
-    for (var n = 1; n <= QUANT_STEPS; n++) {
+    // 16 at the top, 1 at the bottom, with a clear ("x") option below 1.
+    for (var n = QUANT_STEPS; n >= 1; n--) {
       var item = document.createElement('div');
       item.className = 'numberMenuItem';
       item.textContent = String(n);
-      (function (count) {
-        item.addEventListener('pointerdown', function (e) {
+      (function (count, el) {
+        el.addEventListener('pointerdown', function (e) {
           e.stopPropagation();
           e.preventDefault();
           placeEuclidean(numberMenuMineralIdx, count);
-          item.classList.add('flash');
-          void item.offsetWidth; // force the instant gold to paint before fading it back out
-          item.classList.remove('flash');
-          setTimeout(closeNumberMenu, 400);
+          flashThenClose(el);
         });
-      })(n);
+      })(n, item);
       numberMenuEl.appendChild(item);
     }
+    var clearItem = document.createElement('div');
+    clearItem.className = 'numberMenuItem clearItem';
+    clearItem.textContent = '✕';
+    clearItem.setAttribute('aria-label', 'Clear');
+    clearItem.addEventListener('pointerdown', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      clearMultiplierForMineral(numberMenuMineralIdx);
+      flashThenClose(clearItem);
+    });
+    numberMenuEl.appendChild(clearItem);
 
     numberMenuEl.style.display = 'flex';
     var rect = anchorEl.getBoundingClientRect();
@@ -864,19 +1104,32 @@
     }
   }
 
-  // Euclidean-style maximally-even spread of n copies of a mineral across
-  // the 16 quantize slots, starting at the zero mark (slot 0): the standard
-  // floor(i * steps / n) placement, same result as the classic
-  // "Euclidean rhythm" bresenham-style construction.
+  // Multiplier-placed stones are tagged so a re-pick for the same mineral
+  // replaces them instead of piling more on, and the menu's "x" can clear
+  // just this mineral's multiplier set without touching anything hand-placed.
+  function removeMultiplierPlaced(mineralIdx) {
+    disk = disk.filter(function (m) { return !(m.mineralIndex === mineralIdx && m.viaMultiplier); });
+  }
+  function clearMultiplierForMineral(mineralIdx) {
+    removeMultiplierPlaced(mineralIdx);
+    recalcSchedule();
+  }
+
+  // Evenly spread n copies of a mineral around the disc, continuous (not
+  // snapped to the 16-slot grid) — only i=0 lands exactly on the zero mark,
+  // the rest just divide the circle evenly. Each copy's visual spin starts
+  // at its own random orientation (independent of its position, which stays
+  // exactly evenly spaced) rather than all of them looking upright together.
   function placeEuclidean(mineralIdx, n) {
-    var rotBase = rotation.angleAt(nowSec());
+    removeMultiplierPlaced(mineralIdx);
+    var gNow = rotation.angleAt(nowSec());
     for (var i = 0; i < n; i++) {
-      // continuous even spacing, not snapped to the 16-slot grid — only i=0
-      // lands exactly on the zero mark, the rest just divide the circle evenly
       var thetaOffset = mod2pi(i * (2 * Math.PI / n));
       var radiusFrac = resolveLineRadius(thetaOffset, 0.6, -1);
+      var rotBase = gNow - Math.random() * 2 * Math.PI;
       disk.push({ id: uid(), mineralIndex: mineralIdx, thetaOffset: thetaOffset, radiusFrac: radiusFrac,
-                  rotBase: rotBase, muted: false, lastK: undefined, prevPhase: 0, flashUntil: -1 });
+                  rotBase: rotBase, muted: false, lastK: undefined, prevPhase: 0, flashUntil: -1,
+                  viaMultiplier: true });
     }
     recalcSchedule();
   }
