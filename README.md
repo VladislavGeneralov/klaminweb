@@ -2,7 +2,7 @@
 
 Gridless circular sequencer for mobile browsers — a spinning disc instead of a step grid, in the spirit of Theremin's rhythmicon. Drop minerals anywhere on the disc; each one sounds as it passes a fixed playhead while the disc spins. No quantization by default (a toggle is planned).
 
-Current state: a working spike, no build step, no dependencies — almost entirely one file (`index.html`), plus `reverb-processor.js`, which has to live on its own since `AudioWorklet` modules are loaded from a URL, not inlined.
+Current state: a working spike, no build step, no dependencies — almost entirely one file (`index.html`), plus `reverb-processor.js` and `recorder-processor.js`, which have to live on their own since `AudioWorklet` modules are loaded from a URL, not inlined.
 
 Live: **https://vladislavgeneralov.github.io/klaminweb/**
 
@@ -34,10 +34,18 @@ Smaller fixes in the same pass: `ctx2d.shadowBlur` (a real per-draw cost on some
 
 Checked and not a concern at the original 9-mineral scale: mineral photos are 410×410, ~150-225KB each; the scheduler's `setInterval` tick is O(minerals) with a handful of Newton-Raphson iterations, negligible; `ctx2d.save()/rotate()/restore()` per mineral (for the disc-relative spin) is a normal, cheap canvas operation. The palette has since grown to 20 minerals (roughly double the image payload, plus audio once samples 10-20 are recorded) — worth re-checking total load size once those samples exist, none of the *per-frame* costs above scale badly with mineral count so this is a one-time-load concern, not a runtime one.
 
+## Samples page
+
+Opened from the SAMPLES corner button (bottom-left disc corner), a near-fullscreen overlay (same absolute-within-`#app` footprint as the reverb panel, just full height) listing all 22 minerals at once, scrolled — with its own vertical scrollbar styled and behaving exactly like the palette's (`#paletteScrollbar`): a proportional, draggable thumb kept in sync with the list's native scroll, not a replacement for it. Each row: thumbnail, a waveform (peaks from `originalBuffer`'s channel 0, drawn once per row and cached until the material changes, mirrored within the trim window whenever reversed so the picture always matches play order) with two draggable trim handles and a moving playhead during preview, duration, four round icon buttons — PLAY (triangle/bars, same swap as the main transport button), REV (a "<>" pair), REC (a plain dot, turns solid red while capturing), WAV (an upload arrow) — and two thin horizontal sliders, PITCH (0.5x-2x, logarithmic, centered on 1x) and VOLUME (0-100%, defaults to 80%). Pitch/volume are real per-mineral voice parameters, not just preview-only knobs — `playMineralAt` applies both (`playbackRate` and a per-play `GainNode`) whenever that mineral triggers on the disc, same live-update path as a trimmed/reversed buffer.
+
+Trim/reverse are **not destructive** — each mineral slot keeps `originalBuffer` (the shipped `samples/N.wav`, or whatever was last recorded/uploaded) untouched, plus `trimStart`/`trimEnd`/`reversed`; the actual working buffer (what `playMineralAt` reads, so a mineral already on the disc updates live) is rebuilt from those three numbers on every edit. Recording or uploading replaces `originalBuffer` wholesale and resets trim/reverse back to "whole thing, forward," matching how a real re-record would work. Nothing is written to disk and nothing persists — a page reload always returns to the shipped 22 samples, by design (no save/load exists anywhere in the app).
+
+Recording captures raw PCM via a tiny `AudioWorkletProcessor` (`recorder-processor.js`) rather than `MediaRecorder`, sidestepping container/codec differences across mobile browsers (notably inconsistent on Safari) that would need decoding back to a buffer anyway before trim/reverse could apply. The length cap is 4 seconds — comfortable headroom over the longest shipped sample (`15.wav`, 3.315s); an uploaded file longer than that is silently truncated to the cap, same as a recording auto-stopping there.
+
 ## Open / not yet built
 
 - No cap on mineral count.
-- No save/load — sessions are ephemeral by design.
+- No save/load — sessions are ephemeral by design (this includes the samples page's edits).
 
 ## Visual style
 

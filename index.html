@@ -305,7 +305,7 @@
   }
   .iconX::before { transform: translate(-50%, -50%) rotate(45deg); }
   .iconX::after { transform: translate(-50%, -50%) rotate(-45deg); }
-  #placeholderBtn { bottom: 12px; left: 12px; cursor: default; }
+  #placeholderBtn { bottom: 12px; left: 12px; }
   /* Outline-only (no fill) — the CSS border-trick used for other triangles
      can't make a hollow shape, so this one is a small inline SVG stroke
      instead. currentColor picks up the button's own color, same as the
@@ -479,6 +479,252 @@
   }
   .faderTrackLook:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  /* Samples page — a near-fullscreen overlay covering the whole #app frame
+     (same absolute-within-app footprint as #reverbPanel, just the full
+     height instead of a strip), opened from the SAMPLES corner button. All
+     22 rows are built and shown at once, scrolled — the app-wide
+     touch-action:none lock is lifted for this page specifically (native
+     scroll, not a custom drag) so #samplesList scrolls with a normal
+     finger-drag; each row's own waveform canvas keeps touch-action:none so
+     starting a trim-handle drag there doesn't also pan the page under it. */
+  #samplesPage {
+    display: none;
+    position: absolute;
+    left: 0; top: 0; right: 0; bottom: 0;
+    z-index: 250;
+    background: var(--bg);
+    flex-direction: column;
+  }
+  #samplesPage.open { display: flex; }
+  #samplesPageHeader {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: max(14px, env(safe-area-inset-top)) 18px 14px;
+    background: var(--panel);
+    border-bottom: 2px solid var(--edge);
+  }
+  #samplesPageTitle {
+    font-family: system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+  }
+  #samplesCloseBtn {
+    flex: 0 0 auto;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--edge);
+    border: 2px solid var(--ink-dim);
+    color: var(--ink-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #samplesBody {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+  }
+  #samplesList {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    touch-action: pan-y;
+    padding: 6px 14px max(18px, env(safe-area-inset-bottom));
+    /* The browser's own scrollbar would otherwise sit right next to the
+       custom-styled one below — scrolling still works, only the native
+       chrome is hidden. */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #samplesList::-webkit-scrollbar { display: none; }
+  /* Same styling as the palette's own scrollbar (#paletteScrollbar) —
+     accent-dim thumb on an edge track — just vertical here since the list
+     scrolls vertically instead of sideways. */
+  #samplesScrollbar {
+    width: 6px;
+    flex: 0 0 auto;
+    background: var(--edge);
+    position: relative;
+    margin: 6px 6px 6px 0;
+  }
+  #samplesScrollbarThumb {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    background: var(--accent-dim);
+    touch-action: none;
+    cursor: grab;
+  }
+  .sampleRow {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--edge);
+  }
+  .sampleRowTop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sampleThumb {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    object-fit: contain;
+  }
+  .sampleWave {
+    flex: 1 1 auto;
+    width: 100%;
+    height: 32px;
+    touch-action: none;
+  }
+  .sampleDur {
+    flex: 0 0 auto;
+    width: 32px;
+    text-align: left;
+    font-family: system-ui, sans-serif;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-dim);
+  }
+  /* Icon buttons + the two sliders sit in one row — buttons fixed-size on
+     the left, sliders filling the remaining width to the right, same
+     "next to the buttons" arrangement rather than a separate row each. */
+  .sampleControlsRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .sampleRowBtns {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+  /* Round icon buttons — same shape/coloring convention as the disc's own
+     .roundCtrlBtn corner buttons (34px, edge fill, ink-dim border/icon),
+     just reused here at row scale instead of pinned to the disc. */
+  .sampleIconBtn {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--edge);
+    border: 2px solid var(--ink-dim);
+    color: var(--ink-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .sampleIconBtn.on { background: var(--gold); border-color: var(--gold); color: var(--edge); }
+  .sampleIconBtn.recording { background: var(--danger); border-color: var(--danger); color: var(--edge); }
+  /* Play — same drawn-triangle/bars swap as the main transport button. */
+  .sampleIconTriangle {
+    width: 0; height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 8px solid currentColor;
+    margin-left: 2px;
+  }
+  .sampleIconBars { display: none; gap: 3px; }
+  .sampleIconBars span { width: 3px; height: 10px; background: currentColor; display: block; }
+  .sampleIconBtn.on .sampleIconTriangle { display: none; }
+  .sampleIconBtn.on .sampleIconBars { display: flex; }
+  /* Reverse — a "<" and ">" pair standing in for forward/back, the same
+     idea as the main disc's paired arrow triangles. */
+  .sampleIconRev { position: relative; width: 16px; height: 10px; }
+  .sampleIconRev::before, .sampleIconRev::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 0; height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transform: translateY(-50%);
+  }
+  .sampleIconRev::before { left: 0; border-right: 6px solid currentColor; }
+  .sampleIconRev::after { right: 0; border-left: 6px solid currentColor; }
+  /* Record — a plain filled dot; the button itself already reads as the
+     ring around it. Turns solid danger-red (via .recording above) while
+     actually capturing, which is the state cue, not a second icon shape. */
+  .sampleIconDot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+  .sampleIconUpload { display: block; }
+  .sampleStatus {
+    margin-top: 4px;
+    font-family: system-ui, sans-serif;
+    font-size: 9px;
+    color: var(--danger);
+    min-height: 11px;
+  }
+  .sampleFileInput { display: none; }
+  /* Pitch/volume — side by side, each column no taller than the icon
+     buttons next to them (track on top, label+value stacked below it
+     instead of alongside, so neither slider needs to run very long). */
+  .sampleSliders {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 32px;
+  }
+  /* Positioned (not stacked-and-centered) so the *track itself* lands dead
+     center of the 32px row, exactly level with the round buttons' own
+     center — a centered flex column would center the track+meta block as a
+     whole instead, leaving the track sitting above that line since there's
+     no label above it to balance the meta row below. */
+  .sampleSliderGroup {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .sampleSliderTrack {
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 10px;
+    background: var(--ink-dim); /* a visible grey body — var(--edge) was reading as invisible against the black page */
+    border: 1px solid var(--edge);
+    touch-action: none;
+  }
+  .sampleSliderThumb {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    width: 8px;
+    background: var(--gold);
+    border: 1px solid var(--edge);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .sampleSliderMeta {
+    position: absolute;
+    left: 0; right: 0;
+    top: calc(50% + 8px);
+    display: flex;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .sampleSliderLabel {
+    font-family: system-ui, sans-serif;
+    font-size: 7px;
+    letter-spacing: 0.03em;
+    color: var(--ink-dim);
+    white-space: nowrap;
+  }
+  .sampleSliderVal {
+    font-family: system-ui, sans-serif;
+    font-size: 7px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-dim);
+    white-space: nowrap;
+  }
+
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
 </head>
@@ -522,7 +768,7 @@
       <span class="iconX"></span>
       <span class="roundCtrlLabel">CLEAR</span>
     </button>
-    <button id="placeholderBtn" class="roundCtrlBtn" type="button" tabindex="-1" aria-hidden="true">
+    <button id="placeholderBtn" class="roundCtrlBtn" type="button" aria-label="Samples">
       <svg class="iconTriangleUp" viewBox="0 0 14 12" width="14" height="12"><polygon points="7,1 13,11 1,11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
       <span class="roundCtrlLabel">SAMPLES</span>
     </button>
@@ -549,6 +795,18 @@
         <button id="clearCancelBtn" type="button">CANCEL</button>
         <button id="clearClearBtn" type="button">CLEAR</button>
       </div>
+    </div>
+  </div>
+  <div id="samplesPage">
+    <div id="samplesPageHeader">
+      <span id="samplesPageTitle">SAMPLES</span>
+      <button id="samplesCloseBtn" type="button" aria-label="Close">
+        <span class="iconX"></span>
+      </button>
+    </div>
+    <div id="samplesBody">
+      <div id="samplesList"></div>
+      <div id="samplesScrollbar"><div id="samplesScrollbarThumb"></div></div>
     </div>
   </div>
 </div>
@@ -593,15 +851,59 @@
                          '#5e8a9e', '#9e7a4a'];
   var MINERALS = [];
   for (var n = 1; n <= 22; n++) {
-    MINERALS.push({ num: n, color: MINERAL_COLORS[n - 1], buffer: null });
+    MINERALS.push({ num: n, color: MINERAL_COLORS[n - 1], buffer: null,
+                    originalBuffer: null, trimStart: 0, trimEnd: 0, reversed: false,
+                    pitch: 1, volume: 0.8 });
   }
+
+  // slot.buffer (what playMineralAt actually reads) is always derived from
+  // slot.originalBuffer + trimStart/trimEnd/reversed — trimming/reversing on
+  // the samples page never touches the shipped file, just these three
+  // numbers, and any mineral already placed on the disc picks up the new
+  // sound the next time it triggers since it reads slot.buffer live.
+  function rebuildSlotBuffer(slot) {
+    var orig = slot.originalBuffer;
+    if (!orig) { slot.buffer = null; return; }
+    var sr = orig.sampleRate;
+    var startFrame = Math.max(0, Math.min(orig.length, Math.round(slot.trimStart * sr)));
+    var endFrame = Math.max(startFrame + 1, Math.min(orig.length, Math.round(slot.trimEnd * sr)));
+    if (startFrame === 0 && endFrame === orig.length && !slot.reversed) {
+      slot.buffer = orig; // untouched — no copy needed
+      return;
+    }
+    var len = endFrame - startFrame;
+    var out = decodeCtx.createBuffer(orig.numberOfChannels, len, sr);
+    for (var ch = 0; ch < orig.numberOfChannels; ch++) {
+      var srcData = orig.getChannelData(ch).subarray(startFrame, endFrame);
+      var dstData = out.getChannelData(ch);
+      if (slot.reversed) {
+        for (var i = 0; i < len; i++) dstData[i] = srcData[len - 1 - i];
+      } else {
+        dstData.set(srcData);
+      }
+    }
+    slot.buffer = out;
+  }
+
+  // Recording/uploading replaces the original wholesale (erase, then write,
+  // per spec) — trim/reverse reset back to "whole thing, forward" on the new
+  // material rather than carrying over stale offsets into a differently
+  // shaped buffer.
+  function setSlotOriginal(slot, buf) {
+    slot.originalBuffer = buf;
+    slot.trimStart = 0;
+    slot.trimEnd = buf.duration;
+    slot.reversed = false;
+    rebuildSlotBuffer(slot);
+  }
+
   MINERALS.forEach(function (slot) {
     slot.img = new Image();
     slot.img.src = 'minerals/' + slot.num + '.webp';
     fetch('samples/' + slot.num + '.wav')
       .then(function (r) { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
       .then(function (ab) { return decodeCtx.decodeAudioData(ab); })
-      .then(function (buf) { slot.buffer = buf; })
+      .then(function (buf) { setSlotOriginal(slot, buf); })
       .catch(function () { /* sample not present on disk yet */ });
   });
 
@@ -663,7 +965,7 @@
   window.addEventListener('orientationchange', updateCanvasRect);
 
   document.addEventListener('touchmove', function (e) {
-    if (e.target.closest('input, button, .mineralBtn, .inlineToggle, #faderTrack, #reverbFaderTrack, #numberMenu, #paletteViewport, #paletteScrollbarThumb, #clearConfirm')) return;
+    if (e.target.closest('input, button, .mineralBtn, .inlineToggle, #faderTrack, #reverbFaderTrack, #numberMenu, #paletteViewport, #paletteScrollbarThumb, #clearConfirm, #samplesPage')) return;
     e.preventDefault();
   }, { passive: false });
 
@@ -867,11 +1169,18 @@
     if (!buf || !audioCtx) return null;
     var src = audioCtx.createBufferSource();
     src.buffer = buf;
-    src.connect(audioCtx.destination);
+    src.playbackRate.value = slot.pitch || 1;
+    // Per-mineral volume — a plain gain stage between the source and both
+    // the dry output and the reverb send, so it's one knob for the whole
+    // voice rather than needing to scale two paths separately.
+    var gain = audioCtx.createGain();
+    gain.gain.value = slot.volume != null ? slot.volume : 0.8;
+    src.connect(gain);
+    gain.connect(audioCtx.destination);
     // Parallel tap, dry path above unaffected — only wired in while the knob
     // is actually up, so the convolver has nothing to chew on (and nothing
     // to cost) whenever reverb is dialed back to off.
-    if (reverbSendGain && reverbAmount > 0) src.connect(reverbSendGain);
+    if (reverbSendGain && reverbAmount > 0) gain.connect(reverbSendGain);
     src.start(Math.max(audioTime, audioCtx.currentTime));
     return src;
   }
@@ -942,6 +1251,75 @@
     var wetT = t * t; // mix is a non-linear (quadratic) curve — more resolution low, dramatic near the top
     reverbSendGain.gain.setTargetAtTime(wetT * REVERB_MAX_WET, audioCtx.currentTime, 0.03);
     reverbNode.parameters.get('decay').setTargetAtTime(REVERB_MIN_DECAY + t * (REVERB_MAX_DECAY - REVERB_MIN_DECAY), audioCtx.currentTime, 0.05);
+  }
+
+  // ================= mic recording: raw PCM capture into an AudioBuffer =================
+  // A tiny AudioWorkletProcessor (recorder-processor.js) hands back each
+  // 128-sample block as it arrives — this avoids MediaRecorder's
+  // container/codec choice, which varies by browser (notably inconsistent
+  // on mobile Safari) and would need decoding back anyway before the buffer
+  // could be trimmed/reversed like any other sample.
+  var SAMPLE_MAX_LENGTH = 4; // seconds — headroom over the longest shipped sample (15.wav, 3.315s)
+  var recorderModuleReady = null;
+  function ensureRecorderModule() {
+    if (!recorderModuleReady) recorderModuleReady = audioCtx.audioWorklet.addModule('recorder-processor.js');
+    return recorderModuleReady;
+  }
+
+  var activeRecording = null; // {stream, source, node, silentGain, chunks, stopTimer, onDone}
+
+  function startRecording(onDone) {
+    ensureAudio();
+    audioCtx.resume();
+    ensureRecorderModule().then(function () {
+      return navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    }).then(function (stream) {
+      var source = audioCtx.createMediaStreamSource(stream);
+      var node = new AudioWorkletNode(audioCtx, 'recorder-processor', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+      // Output is never written to (stays silent) — routed to destination
+      // through a zero-gain node purely so the graph actually pulls this
+      // node's process() calls; nothing audible reaches the speakers.
+      var silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+      var chunks = [];
+      node.port.onmessage = function (e) { chunks.push(e.data); };
+      source.connect(node);
+      node.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+      activeRecording = { stream: stream, source: source, node: node, silentGain: silentGain, chunks: chunks, onDone: onDone };
+      activeRecording.stopTimer = setTimeout(stopRecording, SAMPLE_MAX_LENGTH * 1000);
+    }).catch(function (err) {
+      recorderModuleReady = null; // don't let one failed attempt (module load, permission) wedge every future try
+      onDone(null, err);
+    });
+  }
+
+  function stopRecording() {
+    var rec = activeRecording;
+    if (!rec) return;
+    activeRecording = null;
+    clearTimeout(rec.stopTimer);
+    rec.stream.getTracks().forEach(function (t) { t.stop(); });
+    try { rec.source.disconnect(); } catch (e) {}
+    try { rec.node.disconnect(); } catch (e) {}
+    try { rec.silentGain.disconnect(); } catch (e) {}
+    rec.node.port.onmessage = null;
+    var maxLen = Math.round(SAMPLE_MAX_LENGTH * audioCtx.sampleRate);
+    var totalLen = 0;
+    for (var i = 0; i < rec.chunks.length; i++) totalLen += rec.chunks[i].length;
+    totalLen = Math.min(totalLen, maxLen);
+    var buf = decodeCtx.createBuffer(1, Math.max(1, totalLen), audioCtx.sampleRate);
+    var data = buf.getChannelData(0);
+    var offset = 0;
+    for (var j = 0; j < rec.chunks.length && offset < totalLen; j++) {
+      var c = rec.chunks[j];
+      var take = Math.min(c.length, totalLen - offset);
+      data.set(c.subarray(0, take), offset);
+      offset += take;
+    }
+    rec.onDone(buf, null);
   }
 
   // ================= scheduler: audio-clock lookahead, never tied to rAF =================
@@ -1180,6 +1558,443 @@
   clearConfirmEl.addEventListener('pointerdown', function (e) {
     if (e.target === clearConfirmEl) closeClearConfirm(); // backdrop tap cancels too
   });
+
+  // ================= samples page — view/preview/trim/reverse/record/upload =================
+  // Non-destructive within the session (trim+reverse are just parameters
+  // re-applied to slot.originalBuffer, see rebuildSlotBuffer above); nothing
+  // here is ever written to disk, so a page reload always returns to the
+  // shipped samples/N.wav set, per spec.
+  var samplesPageEl = document.getElementById('samplesPage');
+  var samplesListEl = document.getElementById('samplesList');
+  var samplesCloseBtn = document.getElementById('samplesCloseBtn');
+  var placeholderBtn = document.getElementById('placeholderBtn');
+  var sampleRows = [];
+  var recordingRow = null;
+  var previewSource = null, previewRow = null, previewRAF = null;
+
+  function stopPreview() {
+    if (previewSource) { try { previewSource.stop(); } catch (e) {} previewSource = null; }
+    if (previewRAF) { cancelAnimationFrame(previewRAF); previewRAF = null; }
+    if (previewRow) {
+      var r = previewRow;
+      r.playBtnEl.classList.remove('on');
+      previewRow = null;
+      drawSampleWave(r); // clears the playhead
+    }
+  }
+
+  function computePeaks(buffer, numPeaks) {
+    var data = buffer.getChannelData(0);
+    var perPeak = Math.max(1, Math.floor(data.length / numPeaks));
+    var peaks = new Float32Array(numPeaks);
+    for (var i = 0; i < numPeaks; i++) {
+      var start = i * perPeak;
+      var end = Math.min(data.length, start + perPeak);
+      var max = 0;
+      for (var j = start; j < end; j++) { var v = Math.abs(data[j]); if (v > max) max = v; }
+      peaks[i] = max;
+    }
+    return peaks;
+  }
+
+  // Screen-space positions of the trim handles — single source of truth for
+  // both drawing and hit-testing, same convention as the disc's own
+  // handleGeom. When reversed, trimStart/trimEnd still name the same fixed
+  // region of originalBuffer (untouched by toggling reversed — see
+  // rebuildSlotBuffer), but the *mirrored* bars put trimEnd's content on
+  // the left of the screen and trimStart's on the right, so sx/ex swap
+  // which underlying value they read — sx (left) and ex (right) always
+  // stay left/right on screen either way.
+  function trimHandleScreenX(slot, dur, w) {
+    var sxRaw = (slot.trimStart / dur) * w, exRaw = (slot.trimEnd / dur) * w;
+    if (slot.reversed) return { sx: w - exRaw, ex: w - sxRaw };
+    return { sx: sxRaw, ex: exRaw };
+  }
+
+  function setupWaveCanvas(row) {
+    var rect = row.waveCanvas.getBoundingClientRect();
+    var w = Math.max(1, rect.width), h = Math.max(1, rect.height);
+    var dpr2 = Math.max(window.devicePixelRatio || 1, 1);
+    row.waveCanvas.width = Math.round(w * dpr2);
+    row.waveCanvas.height = Math.round(h * dpr2);
+    row.waveCtx = row.waveCanvas.getContext('2d');
+    row.waveCtx.setTransform(dpr2, 0, 0, dpr2, 0, 0);
+    row.waveW = w; row.waveH = h;
+  }
+
+  function drawSampleWave(row) {
+    var slot = row.slot;
+    var wctx = row.waveCtx, w = row.waveW, h = row.waveH;
+    wctx.clearRect(0, 0, w, h);
+    wctx.fillStyle = THEME.edge;
+    wctx.fillRect(0, 0, w, h);
+    var orig = slot.originalBuffer;
+    if (!orig) return;
+    if (!row.peaks) row.peaks = computePeaks(orig, Math.max(20, Math.round(w)));
+    var peaks = row.peaks;
+    var mid = h / 2;
+    var dur = orig.duration || 1;
+    var handleX = trimHandleScreenX(slot, dur, w);
+    var sx = handleX.sx, ex = handleX.ex;
+    // Mirror the whole array, a fixed flip keyed only on `reversed` — not
+    // scoped to the live trim window, which used to remap on every single
+    // pointermove as the boundary moved (the trim handles and the mirrored
+    // range were the same numbers), reading as the bars themselves
+    // reshuffling mid-drag. This is a touch less literal for a partially
+    // trimmed selection but never moves while you're just dragging a handle.
+    wctx.fillStyle = THEME.inkDim;
+    for (var i = 0; i < peaks.length; i++) {
+      var x = (i / peaks.length) * w;
+      var barW = Math.max(1, w / peaks.length);
+      var srcIdx = slot.reversed ? (peaks.length - 1 - i) : i;
+      var barH = Math.max(1, peaks[srcIdx] * mid);
+      wctx.fillRect(x, mid - barH, barW, barH * 2);
+    }
+    wctx.fillStyle = 'rgba(0,0,0,0.55)';
+    if (sx > 0) wctx.fillRect(0, 0, sx, h);
+    if (ex < w) wctx.fillRect(ex, 0, w - ex, h);
+    wctx.fillStyle = THEME.gold;
+    wctx.fillRect(Math.max(0, sx - 1), 0, 2, h);
+    wctx.fillRect(Math.min(w - 2, ex - 1), 0, 2, h);
+
+    // Playhead — only while this row's own preview is the one playing,
+    // sweeping left to right across the trim window over the buffer's
+    // actual duration (matches the mirrored display above either way, so
+    // "reversed" never needs its own sweep direction).
+    if (previewRow === row && row.previewStart != null && row.previewDur > 0) {
+      var elapsed = audioCtx.currentTime - row.previewStart;
+      var frac = Math.max(0, Math.min(1, elapsed / row.previewDur));
+      var px = sx + (ex - sx) * frac;
+      wctx.fillStyle = THEME.ivory;
+      wctx.fillRect(Math.max(0, px - 1), 0, 2, h);
+    }
+  }
+
+  function updateRowDuration(row) {
+    var slot = row.slot;
+    var d = slot.originalBuffer ? Math.max(0, slot.trimEnd - slot.trimStart) : 0;
+    row.durEl.textContent = d.toFixed(2) + 's';
+  }
+
+  function onSlotMaterialChanged(row) {
+    row.peaks = null;
+    row.revBtnEl.classList.remove('on');
+    drawSampleWave(row);
+    updateRowDuration(row);
+  }
+
+  function buildSampleRow(slot) {
+    var row = { slot: slot, trimDrag: null, peaks: null };
+
+    var el = document.createElement('div');
+    el.className = 'sampleRow';
+
+    var top = document.createElement('div');
+    top.className = 'sampleRowTop';
+    var thumb = document.createElement('img');
+    thumb.className = 'sampleThumb';
+    thumb.src = 'minerals/' + slot.num + '.webp';
+    var waveCanvas = document.createElement('canvas');
+    waveCanvas.className = 'sampleWave';
+    var durEl = document.createElement('span');
+    durEl.className = 'sampleDur';
+    top.appendChild(thumb); top.appendChild(durEl); top.appendChild(waveCanvas);
+
+    var controlsRow = document.createElement('div');
+    controlsRow.className = 'sampleControlsRow';
+
+    var btns = document.createElement('div');
+    btns.className = 'sampleRowBtns';
+    var playBtn = document.createElement('button');
+    playBtn.type = 'button'; playBtn.className = 'sampleIconBtn'; playBtn.setAttribute('aria-label', 'Play');
+    playBtn.innerHTML = '<span class="sampleIconTriangle"></span><span class="sampleIconBars"><span></span><span></span></span>';
+    var revBtn = document.createElement('button');
+    revBtn.type = 'button'; revBtn.className = 'sampleIconBtn'; revBtn.setAttribute('aria-label', 'Reverse');
+    revBtn.innerHTML = '<span class="sampleIconRev"></span>';
+    var recBtn = document.createElement('button');
+    recBtn.type = 'button'; recBtn.className = 'sampleIconBtn'; recBtn.setAttribute('aria-label', 'Record');
+    recBtn.innerHTML = '<span class="sampleIconDot"></span>';
+    var upBtn = document.createElement('button');
+    upBtn.type = 'button'; upBtn.className = 'sampleIconBtn'; upBtn.setAttribute('aria-label', 'Upload');
+    upBtn.innerHTML = '<svg class="sampleIconUpload" viewBox="0 0 14 14" width="14" height="14">' +
+      '<polyline points="3,6 7,1 11,6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<line x1="7" y1="2" x2="7" y2="10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      '<path d="M2,10 L2,11.5 Q2,13 3.5,13 L10.5,13 Q12,13 12,11.5 L12,10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      '</svg>';
+    btns.appendChild(playBtn); btns.appendChild(revBtn); btns.appendChild(recBtn); btns.appendChild(upBtn);
+
+    function buildSliderGroup(labelText) {
+      var group = document.createElement('div');
+      group.className = 'sampleSliderGroup';
+      var track = document.createElement('div');
+      track.className = 'sampleSliderTrack';
+      var thumbEl = document.createElement('div');
+      thumbEl.className = 'sampleSliderThumb';
+      track.appendChild(thumbEl);
+      var meta = document.createElement('div');
+      meta.className = 'sampleSliderMeta';
+      var labelEl = document.createElement('span');
+      labelEl.className = 'sampleSliderLabel';
+      labelEl.textContent = labelText;
+      var valEl = document.createElement('span');
+      valEl.className = 'sampleSliderVal';
+      meta.appendChild(labelEl); meta.appendChild(valEl);
+      group.appendChild(track); group.appendChild(meta);
+      return { group: group, track: track, thumbEl: thumbEl, valEl: valEl };
+    }
+    var sliders = document.createElement('div');
+    sliders.className = 'sampleSliders';
+    var pitchUI = buildSliderGroup('PITCH');
+    var volUI = buildSliderGroup('VOL');
+    sliders.appendChild(pitchUI.group); sliders.appendChild(volUI.group);
+
+    controlsRow.appendChild(btns); controlsRow.appendChild(sliders);
+
+    var statusEl = document.createElement('div');
+    statusEl.className = 'sampleStatus';
+
+    var fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'audio/*';
+    fileInput.className = 'sampleFileInput';
+
+    el.appendChild(top); el.appendChild(controlsRow); el.appendChild(statusEl); el.appendChild(fileInput);
+
+    row.el = el; row.waveCanvas = waveCanvas; row.durEl = durEl; row.statusEl = statusEl;
+    row.playBtnEl = playBtn; row.revBtnEl = revBtn; row.recBtnEl = recBtn; row.upBtnEl = upBtn; row.fileInput = fileInput;
+    if (slot.reversed) revBtn.classList.add('on');
+
+    // Pitch: logarithmic 0.5x-2x (matches the main speed fader's own
+    // exponential mapping) so the slider's center is exactly 1x, not
+    // skewed toward one end. Volume: plain linear 0-100%.
+    var PITCH_MIN = 0.5, PITCH_MAX = 2;
+    function pitchToT(p) { return Math.log(p / PITCH_MIN) / Math.log(PITCH_MAX / PITCH_MIN); }
+    function tToPitch(t) { return PITCH_MIN * Math.pow(PITCH_MAX / PITCH_MIN, t); }
+    function trackXToT(track, clientX) {
+      var rect = track.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    }
+    function applyPitchT(t) {
+      var raw = tToPitch(Math.max(0, Math.min(1, t)));
+      slot.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, Math.round(raw * 10) / 10));
+      var pt = pitchToT(slot.pitch);
+      pitchUI.thumbEl.style.left = (pt * 100) + '%';
+      pitchUI.valEl.textContent = slot.pitch.toFixed(1) + 'x';
+    }
+    function applyVolT(t) {
+      slot.volume = Math.max(0, Math.min(1, Math.round(t * 100) / 100));
+      volUI.thumbEl.style.left = (slot.volume * 100) + '%';
+      volUI.valEl.textContent = Math.round(slot.volume * 100) + '%';
+    }
+    applyPitchT(pitchToT(slot.pitch));
+    applyVolT(slot.volume);
+
+    var pitchDragging = false;
+    pitchUI.track.addEventListener('pointerdown', function (e) {
+      pitchDragging = true;
+      pitchUI.track.setPointerCapture(e.pointerId);
+      applyPitchT(trackXToT(pitchUI.track, e.clientX));
+    });
+    pitchUI.track.addEventListener('pointermove', function (e) { if (pitchDragging) applyPitchT(trackXToT(pitchUI.track, e.clientX)); });
+    pitchUI.track.addEventListener('pointerup', function () { pitchDragging = false; });
+    pitchUI.track.addEventListener('pointercancel', function () { pitchDragging = false; });
+
+    var volDragging = false;
+    volUI.track.addEventListener('pointerdown', function (e) {
+      volDragging = true;
+      volUI.track.setPointerCapture(e.pointerId);
+      applyVolT(trackXToT(volUI.track, e.clientX));
+    });
+    volUI.track.addEventListener('pointermove', function (e) { if (volDragging) applyVolT(trackXToT(volUI.track, e.clientX)); });
+    volUI.track.addEventListener('pointerup', function () { volDragging = false; });
+    volUI.track.addEventListener('pointercancel', function () { volDragging = false; });
+
+    function waveLocalX(clientX) { return clientX - row.waveCanvas.getBoundingClientRect().left; }
+    // Mirror-aware: screen x=0 is always trimStart's own time (0) unless
+    // reversed, in which case screen x=0 reads as the *end* of the buffer —
+    // matches the globally-mirrored bars in drawSampleWave exactly.
+    function xToTime(x) {
+      var dur = slot.originalBuffer ? slot.originalBuffer.duration : 0;
+      var frac = Math.max(0, Math.min(1, row.waveW > 0 ? x / row.waveW : 0));
+      return slot.reversed ? (1 - frac) * dur : frac * dur;
+    }
+    var HANDLE_PAD = 14, MIN_TRIM_GAP = 0.02;
+    waveCanvas.addEventListener('pointerdown', function (e) {
+      if (!slot.originalBuffer) return;
+      var x = waveLocalX(e.clientX);
+      var b = trimHandleScreenX(slot, slot.originalBuffer.duration, row.waveW);
+      var dLeft = Math.abs(x - b.sx), dRight = Math.abs(x - b.ex);
+      if (Math.min(dLeft, dRight) > HANDLE_PAD) return; // not close to either handle — no drag-anywhere scrub
+      row.trimDrag = dLeft <= dRight ? 'left' : 'right'; // screen side, not trimStart/trimEnd directly — see pointermove
+      waveCanvas.setPointerCapture(e.pointerId);
+    });
+    waveCanvas.addEventListener('pointermove', function (e) {
+      if (!row.trimDrag || !slot.originalBuffer) return;
+      var t = xToTime(waveLocalX(e.clientX));
+      // The screen-left handle is trimEnd (not trimStart) while reversed,
+      // since the mirrored display puts the buffer's later content on the
+      // left — dragging always moves whichever edge you're actually
+      // touching, not whichever variable happens to share its name.
+      var draggingStart = slot.reversed ? (row.trimDrag === 'right') : (row.trimDrag === 'left');
+      if (draggingStart) slot.trimStart = Math.max(0, Math.min(t, slot.trimEnd - MIN_TRIM_GAP));
+      else slot.trimEnd = Math.min(slot.originalBuffer.duration, Math.max(t, slot.trimStart + MIN_TRIM_GAP));
+      rebuildSlotBuffer(slot);
+      drawSampleWave(row);
+      updateRowDuration(row);
+    });
+    waveCanvas.addEventListener('pointerup', function () { row.trimDrag = null; });
+    waveCanvas.addEventListener('pointercancel', function () { row.trimDrag = null; });
+
+    playBtn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      if (previewRow === row) { stopPreview(); return; }
+      stopPreview();
+      if (!slot.buffer) return;
+      ensureAudio();
+      audioCtx.resume();
+      var src = audioCtx.createBufferSource();
+      src.buffer = slot.buffer;
+      src.playbackRate.value = slot.pitch || 1;
+      var previewGain = audioCtx.createGain();
+      previewGain.gain.value = slot.volume != null ? slot.volume : 0.8;
+      src.connect(previewGain);
+      previewGain.connect(audioCtx.destination);
+      src.onended = function () { if (previewRow === row) stopPreview(); };
+      var startAt = audioCtx.currentTime;
+      src.start(startAt);
+      previewSource = src; previewRow = row;
+      row.previewStart = startAt;
+      row.previewDur = slot.buffer.duration / (slot.pitch || 1);
+      playBtn.classList.add('on');
+      (function tick() {
+        if (previewRow !== row) return;
+        drawSampleWave(row);
+        previewRAF = requestAnimationFrame(tick);
+      })();
+    });
+
+    revBtn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      slot.reversed = !slot.reversed;
+      revBtn.classList.toggle('on', slot.reversed);
+      rebuildSlotBuffer(slot);
+      drawSampleWave(row);
+    });
+
+    recBtn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      if (recordingRow && recordingRow !== row) return; // one mic recording at a time
+      if (recordingRow === row) { stopRecording(); return; }
+      stopPreview();
+      recordingRow = row;
+      recBtn.classList.add('recording');
+      statusEl.textContent = '';
+      startRecording(function (buf, err) {
+        recordingRow = null;
+        recBtn.classList.remove('recording');
+        if (err) { statusEl.textContent = 'mic blocked'; return; }
+        setSlotOriginal(slot, buf);
+        onSlotMaterialChanged(row);
+      });
+    });
+
+    upBtn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', function () {
+      var file = fileInput.files[0];
+      fileInput.value = '';
+      if (!file) return;
+      stopPreview();
+      statusEl.textContent = '';
+      file.arrayBuffer().then(function (ab) {
+        return decodeCtx.decodeAudioData(ab);
+      }).then(function (buf) {
+        if (buf.duration > SAMPLE_MAX_LENGTH) {
+          var sr = buf.sampleRate;
+          var maxLen = Math.round(SAMPLE_MAX_LENGTH * sr);
+          var trimmed = decodeCtx.createBuffer(buf.numberOfChannels, maxLen, sr);
+          for (var ch = 0; ch < buf.numberOfChannels; ch++) {
+            trimmed.getChannelData(ch).set(buf.getChannelData(ch).subarray(0, maxLen));
+          }
+          buf = trimmed;
+        }
+        setSlotOriginal(slot, buf);
+        onSlotMaterialChanged(row);
+      }).catch(function () {
+        statusEl.textContent = 'bad file';
+      });
+    });
+
+    return row;
+  }
+
+  // Custom scrollbar for the list — same styling/behavior as the palette's
+  // own (#paletteScrollbar/#paletteScrollbarThumb): a proportional thumb
+  // that both reflects and drives scroll position. #samplesList still
+  // scrolls natively (finger-drag, momentum) — this is a synced visual/drag
+  // affordance on top, not a replacement for it.
+  var samplesScrollbarThumb = document.getElementById('samplesScrollbarThumb');
+  var samplesScrollbarTrack = samplesScrollbarThumb.parentElement;
+  function updateSamplesScrollbar() {
+    var total = samplesListEl.scrollHeight;
+    var visible = samplesListEl.clientHeight;
+    var trackH = samplesScrollbarTrack.clientHeight;
+    var frac = total > 0 ? Math.min(1, visible / total) : 1;
+    var thumbH = Math.max(20, trackH * frac);
+    var maxScroll = Math.max(0, total - visible);
+    var thumbY = maxScroll > 0 ? (samplesListEl.scrollTop / maxScroll) * (trackH - thumbH) : 0;
+    samplesScrollbarThumb.style.height = thumbH + 'px';
+    samplesScrollbarThumb.style.top = thumbY + 'px';
+  }
+  samplesListEl.addEventListener('scroll', updateSamplesScrollbar);
+
+  var samplesScrollbarDrag = null;
+  samplesScrollbarThumb.addEventListener('pointerdown', function (e) {
+    e.stopPropagation();
+    samplesScrollbarThumb.setPointerCapture(e.pointerId);
+    samplesScrollbarDrag = { startY: e.clientY, startScrollTop: samplesListEl.scrollTop };
+  });
+  samplesScrollbarThumb.addEventListener('pointermove', function (e) {
+    if (!samplesScrollbarDrag) return;
+    var trackH = samplesScrollbarTrack.clientHeight;
+    var thumbH = samplesScrollbarThumb.offsetHeight;
+    var maxScroll = Math.max(0, samplesListEl.scrollHeight - samplesListEl.clientHeight);
+    var usableTrack = Math.max(1, trackH - thumbH);
+    var dy = e.clientY - samplesScrollbarDrag.startY;
+    samplesListEl.scrollTop = samplesScrollbarDrag.startScrollTop + (dy / usableTrack) * maxScroll;
+  });
+  samplesScrollbarThumb.addEventListener('pointerup', function () { samplesScrollbarDrag = null; });
+  samplesScrollbarThumb.addEventListener('pointercancel', function () { samplesScrollbarDrag = null; });
+
+  function openSamplesPage() {
+    samplesListEl.innerHTML = '';
+    sampleRows = MINERALS.map(function (slot) {
+      var row = buildSampleRow(slot);
+      samplesListEl.appendChild(row.el);
+      return row;
+    });
+    // Must be laid out (display:flex, not display:none) before measuring —
+    // getBoundingClientRect on a still-hidden page reads back all zeros, so
+    // every canvas would size to 1x1 and the waveform would draw invisibly.
+    samplesPageEl.classList.add('open');
+    sampleRows.forEach(function (row) {
+      setupWaveCanvas(row);
+      drawSampleWave(row);
+      updateRowDuration(row);
+    });
+    updateSamplesScrollbar();
+  }
+  function closeSamplesPage() {
+    stopPreview();
+    if (recordingRow) stopRecording();
+    samplesPageEl.classList.remove('open');
+    samplesListEl.innerHTML = '';
+    sampleRows = [];
+  }
+  placeholderBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); openSamplesPage(); });
+  samplesCloseBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); closeSamplesPage(); });
 
   var faderTrack = document.getElementById('faderTrack');
   var faderThumb = document.getElementById('faderThumb');
