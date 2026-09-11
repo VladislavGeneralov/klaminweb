@@ -1336,7 +1336,7 @@
       // the recorder so what actually gets captured is louder, not just
       // played back louder later.
       var inputGain = audioCtx.createGain();
-      inputGain.gain.value = 2.4;
+      inputGain.gain.value = 1.6;
       var node = new AudioWorkletNode(audioCtx, 'recorder-processor', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
       // Output is never written to (stays silent) — routed to destination
       // through a zero-gain node purely so the graph actually pulls this
