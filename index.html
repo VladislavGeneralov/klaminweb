@@ -897,13 +897,33 @@
     rebuildSlotBuffer(slot);
   }
 
+  // If the samples page is already open when a fetch/decode resolves (or a
+  // Play tap landed while this slot's buffer was still loading — see
+  // row.pendingPlay in buildSampleRow), bring that row up to date now
+  // instead of leaving it stuck showing an empty waveform forever.
+  function refreshRowAfterLoad(slot) {
+    for (var i = 0; i < sampleRows.length; i++) {
+      var row = sampleRows[i];
+      if (row.slot !== slot) continue;
+      row.peaks = null;
+      drawSampleWave(row);
+      updateRowDuration(row);
+      if (row.statusEl.textContent === 'loading…') row.statusEl.textContent = '';
+      if (row.pendingPlay) {
+        row.pendingPlay = false;
+        if (slot.buffer) row.startPreview();
+      }
+      break;
+    }
+  }
+
   MINERALS.forEach(function (slot) {
     slot.img = new Image();
     slot.img.src = 'minerals/' + slot.num + '.webp';
-    fetch('samples/' + slot.num + '.wav')
+    fetch('samples/' + slot.num + '.mp3')
       .then(function (r) { if (!r.ok) throw new Error('missing'); return r.arrayBuffer(); })
       .then(function (ab) { return decodeCtx.decodeAudioData(ab); })
-      .then(function (buf) { setSlotOriginal(slot, buf); })
+      .then(function (buf) { setSlotOriginal(slot, buf); refreshRowAfterLoad(slot); })
       .catch(function () { /* sample not present on disk yet */ });
   });
 
@@ -967,6 +987,20 @@
   document.addEventListener('touchmove', function (e) {
     if (e.target.closest('input, button, .mineralBtn, .inlineToggle, #faderTrack, #reverbFaderTrack, #numberMenu, #paletteViewport, #paletteScrollbarThumb, #clearConfirm, #samplesPage')) return;
     e.preventDefault();
+  }, { passive: false });
+
+  // Belt-and-suspenders double-tap-zoom guard. The viewport meta
+  // (user-scalable=no) and touch-action:none/manipulation across the app's
+  // own CSS already cover most elements, but #samplesPage intentionally
+  // allows native touch handling for its scrollable list (see above), and
+  // some browsers (notably iOS Safari) don't fully honor touch-action for
+  // the double-tap gesture anyway — this suppresses it everywhere,
+  // independent of which element the tap landed on.
+  var lastTouchEnd = 0;
+  document.addEventListener('touchend', function (e) {
+    var now = Date.now();
+    if (now - lastTouchEnd <= 350) e.preventDefault();
+    lastTouchEnd = now;
   }, { passive: false });
 
   // ================= clock: one clock for everything (perf time) =================
@@ -1259,7 +1293,7 @@
   // container/codec choice, which varies by browser (notably inconsistent
   // on mobile Safari) and would need decoding back anyway before the buffer
   // could be trimmed/reversed like any other sample.
-  var SAMPLE_MAX_LENGTH = 4; // seconds — headroom over the longest shipped sample (15.wav, 3.315s)
+  var SAMPLE_MAX_LENGTH = 4; // seconds — headroom over the longest shipped sample (15.mp3, 3.315s)
   var recorderModuleReady = null;
   function ensureRecorderModule() {
     if (!recorderModuleReady) recorderModuleReady = audioCtx.audioWorklet.addModule('recorder-processor.js');
@@ -1570,7 +1604,7 @@
   // Non-destructive within the session (trim+reverse are just parameters
   // re-applied to slot.originalBuffer, see rebuildSlotBuffer above); nothing
   // here is ever written to disk, so a page reload always returns to the
-  // shipped samples/N.wav set, per spec.
+  // shipped samples/N.mp3 set, per spec.
   var samplesPageEl = document.getElementById('samplesPage');
   var samplesListEl = document.getElementById('samplesList');
   var samplesCloseBtn = document.getElementById('samplesCloseBtn');
@@ -1852,11 +1886,7 @@
     waveCanvas.addEventListener('pointerup', function () { row.trimDrag = null; });
     waveCanvas.addEventListener('pointercancel', function () { row.trimDrag = null; });
 
-    playBtn.addEventListener('pointerdown', function (e) {
-      e.preventDefault();
-      if (previewRow === row) { stopPreview(); return; }
-      stopPreview();
-      if (!slot.buffer) return;
+    function startRowPreview() {
       ensureAudio();
       audioCtx.resume();
       var src = audioCtx.createBufferSource();
@@ -1878,6 +1908,22 @@
         drawSampleWave(row);
         previewRAF = requestAnimationFrame(tick);
       })();
+    }
+    row.startPreview = startRowPreview;
+
+    playBtn.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      if (previewRow === row) { stopPreview(); return; }
+      stopPreview();
+      if (!slot.buffer) {
+        // Sample hasn't finished loading yet (slow connection) — play it
+        // the moment its buffer arrives instead of silently doing nothing;
+        // see the MINERALS load loop below, which consumes this flag.
+        row.pendingPlay = true;
+        statusEl.textContent = 'loading…';
+        return;
+      }
+      startRowPreview();
     });
 
     revBtn.addEventListener('pointerdown', function (e) {
