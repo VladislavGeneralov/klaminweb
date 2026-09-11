@@ -989,20 +989,6 @@
     e.preventDefault();
   }, { passive: false });
 
-  // Belt-and-suspenders double-tap-zoom guard. The viewport meta
-  // (user-scalable=no) and touch-action:none/manipulation across the app's
-  // own CSS already cover most elements, but #samplesPage intentionally
-  // allows native touch handling for its scrollable list (see above), and
-  // some browsers (notably iOS Safari) don't fully honor touch-action for
-  // the double-tap gesture anyway — this suppresses it everywhere,
-  // independent of which element the tap landed on.
-  var lastTouchEnd = 0;
-  document.addEventListener('touchend', function (e) {
-    var now = Date.now();
-    if (now - lastTouchEnd <= 350) e.preventDefault();
-    lastTouchEnd = now;
-  }, { passive: false });
-
   // iOS Safari fires its own non-standard gesture* events for a two-finger
   // pinch independently of touch-action, and ignores preventDefault on the
   // underlying touchstart/touchmove for that gesture — this is Apple's own
@@ -1010,27 +996,33 @@
   document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
   document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
 
-  // Last-resort recovery: iOS Safari's zoom heuristics (especially the
-  // double-tap gesture) aren't fully governed by touch-action or the
-  // viewport meta — despite everything above, some tap sequence can still
-  // sneak a zoom past all of it, and once that happens the page is stuck
-  // zoomed in with no in-app way out (a real report from testing on an
-  // iPhone). visualViewport.scale is the actual, current pinch/double-tap
-  // zoom factor Safari applied; if it ever drifts above 1, force Safari to
-  // recompute it by touching the viewport meta's content — re-setting it to
-  // the exact same string is a no-op, so a byte has to actually change and
-  // then change back a frame later.
+  // Force Safari to recompute the zoom level by touching the viewport
+  // meta's content — re-setting it to the exact same string is a no-op, so
+  // a byte has to actually change and then change back a frame later.
   var viewportMetaEl = document.querySelector('meta[name="viewport"]');
   var VIEWPORT_CONTENT = viewportMetaEl.getAttribute('content');
   function forceResetZoom() {
     viewportMetaEl.setAttribute('content', VIEWPORT_CONTENT + ', shrink-to-fit=no');
     requestAnimationFrame(function () { viewportMetaEl.setAttribute('content', VIEWPORT_CONTENT); });
   }
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', function () {
-      if (window.visualViewport.scale > 1.01) forceResetZoom();
-    });
-  }
+
+  // touch-action and the viewport meta don't reliably stop iOS Safari's
+  // double-tap-to-zoom (confirmed on a real iPhone), and once it zooms in,
+  // Safari's own double-tap-to-zoom-*back-out* toggle turned out not to be
+  // reliable on this page either — leaving reload as the only way out. So:
+  // stop fighting the zoom-in tap (let it happen), but whenever a double-
+  // tap lands while the page IS zoomed in, drive the reset ourselves rather
+  // than hoping Safari's native toggle catches it.
+  var lastTouchEnd = 0;
+  document.addEventListener('touchend', function (e) {
+    var now = Date.now();
+    var isDoubleTap = now - lastTouchEnd <= 350;
+    lastTouchEnd = now;
+    if (isDoubleTap && window.visualViewport && window.visualViewport.scale > 1.01) {
+      e.preventDefault();
+      forceResetZoom();
+    }
+  }, { passive: false });
 
   // ================= clock: one clock for everything (perf time) =================
   function nowSec() { return performance.now() / 1000; }
