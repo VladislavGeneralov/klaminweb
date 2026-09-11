@@ -2224,7 +2224,12 @@
     btn.addEventListener('pointermove', function (e) {
       if (pending && pending.mineralIndex === idx && !pending.longPressFired) {
         var dx = e.clientX - pending.startX, dy = e.clientY - pending.startY;
-        if (Math.abs(dx) > TAP_MOVE_THRESHOLD && Math.abs(dx) >= Math.abs(dy)) {
+        // A real lift-toward-the-disc drag is rarely perfectly vertical, so
+        // ties (or a near-tie) must not go to the slide — only a clearly
+        // sideways-dominant motion (dx notably bigger than dy) counts as
+        // "sliding the palette"; anything ambiguous or diagonal falls
+        // through to the drag-to-disc branch below instead.
+        if (Math.abs(dx) > TAP_MOVE_THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.5) {
           // predominantly sideways — sliding the palette, not dragging to the disc
           clearTimeout(pending.timer);
           paletteSlide = { startX: pending.startX, startOffset: pending.startOffset };
