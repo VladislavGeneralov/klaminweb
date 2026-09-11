@@ -1003,6 +1003,35 @@
     lastTouchEnd = now;
   }, { passive: false });
 
+  // iOS Safari fires its own non-standard gesture* events for a two-finger
+  // pinch independently of touch-action, and ignores preventDefault on the
+  // underlying touchstart/touchmove for that gesture — this is Apple's own
+  // documented way to opt out of it.
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+
+  // Last-resort recovery: iOS Safari's zoom heuristics (especially the
+  // double-tap gesture) aren't fully governed by touch-action or the
+  // viewport meta — despite everything above, some tap sequence can still
+  // sneak a zoom past all of it, and once that happens the page is stuck
+  // zoomed in with no in-app way out (a real report from testing on an
+  // iPhone). visualViewport.scale is the actual, current pinch/double-tap
+  // zoom factor Safari applied; if it ever drifts above 1, force Safari to
+  // recompute it by touching the viewport meta's content — re-setting it to
+  // the exact same string is a no-op, so a byte has to actually change and
+  // then change back a frame later.
+  var viewportMetaEl = document.querySelector('meta[name="viewport"]');
+  var VIEWPORT_CONTENT = viewportMetaEl.getAttribute('content');
+  function forceResetZoom() {
+    viewportMetaEl.setAttribute('content', VIEWPORT_CONTENT + ', shrink-to-fit=no');
+    requestAnimationFrame(function () { viewportMetaEl.setAttribute('content', VIEWPORT_CONTENT); });
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      if (window.visualViewport.scale > 1.01) forceResetZoom();
+    });
+  }
+
   // ================= clock: one clock for everything (perf time) =================
   function nowSec() { return performance.now() / 1000; }
   function mod2pi(a) { var m = a % (2 * Math.PI); return m < 0 ? m + 2 * Math.PI : m; }
