@@ -1463,6 +1463,25 @@
 
   function schedulerTick() {
     if (!audioCtx) return;
+    // clockOffset is only ever a snapshot (see ensureAudio) taken the instant
+    // the context was *created* — while it's still suspended, before the
+    // caller's own resume() call even starts, let alone finishes.
+    // audioCtx.currentTime doesn't advance at all until the context is
+    // actually running, so that snapshot is nowSec() paired against a
+    // currentTime frozen near 0 — understating how far currentTime has to
+    // run before it "catches up" to real time by exactly however long
+    // resume() took to actually take effect (can be very much not
+    // instant on a phone's first audio playback). Every perfToAudio()
+    // conversion done with that stale offset asks the source to start too
+    // far in its own future, which read as the whole rotation-driven
+    // scheduler lagging — while a direct tap plays immediately off
+    // audioCtx.currentTime and never touches clockOffset at all, which is
+    // exactly why only spinning (never tapping) looked delayed. Resyncing
+    // here, every tick, costs nothing and self-heals the moment the
+    // context actually starts running, instead of staying wrong all
+    // session — it also absorbs any slow clock drift between the
+    // performance and audio clocks over a long play session.
+    if (audioCtx.state === 'running') clockOffset = nowSec() - audioCtx.currentTime;
     var now = nowSec();
     var windowEnd = now + LOOKAHEAD;
     var gNow = rotation.angleAt(now);
