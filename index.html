@@ -1408,6 +1408,28 @@
     return t;
   }
 
+  // Scheduling a source at audioCtx time T makes the audio graph *process*
+  // it at T, but T isn't when the listener actually hears it — there's a
+  // further, device-dependent hop out through the OS mixer/output buffer to
+  // the speaker, exposed as outputLatency (or the more conservative
+  // baseLatency on engines that don't track the live figure). It's small
+  // and easy to ignore on a laptop's built-in speaker, but on phones —
+  // especially over Bluetooth — it can run into the hundreds of
+  // milliseconds, and nothing above this point ever accounted for it: the
+  // mineral's visual flash is driven straight off the live rotation angle
+  // every rAF frame (see the `flashing` block in draw()), so it fires
+  // right when the crossing visually happens, while the matching sound —
+  // correctly scheduled on the audio clock — still lands late at the ear by
+  // however much this device's output hop costs. Reading it fresh (not
+  // cached) covers an output route change mid-session, e.g. a Bluetooth
+  // device connecting.
+  function outputLatencySec() {
+    if (!audioCtx) return 0;
+    var l = audioCtx.outputLatency;
+    if (!(l > 0)) l = audioCtx.baseLatency;
+    return l > 0 ? l : 0;
+  }
+
   function scheduleCrossing(m, target, now) {
     var t = crossingTimeForTarget(target, now);
     // Newton's method / floating-point noise can land a crossing that's
@@ -1418,7 +1440,8 @@
     // crossing when a ramp reset just fired). Clamp into the playable
     // future instead of discarding.
     if (t >= now - 0.01) {
-      var node = playMineralAt(m.mineralIndex, perfToAudio(Math.max(t, now)));
+      var audioTime = perfToAudio(Math.max(t, now)) - outputLatencySec();
+      var node = playMineralAt(m.mineralIndex, audioTime);
       if (node) scheduledEvents.push({ time: Math.max(t, now), node: node });
     }
   }
