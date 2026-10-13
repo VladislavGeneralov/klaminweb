@@ -70,6 +70,22 @@
     }
   }
 
+  /* Absolute within #app (not fixed to the viewport) so it stays centered
+     under the 480px-capped app shell on wide screens instead of spanning
+     the full window — sits over #palette's own bottom safe-area padding,
+     which is already empty space, so it costs no layout height anywhere. */
+  #creditLink {
+    position: absolute;
+    left: 0; right: 0;
+    bottom: max(2px, env(safe-area-inset-bottom));
+    text-align: center;
+    font-size: 9px;
+    color: var(--ink-dim);
+    text-decoration: none;
+    z-index: 3;
+  }
+  #creditLink:active { color: var(--ink); }
+
   /* Palette: a 2x10 grid of minerals, windowed by however many columns
      actually fit the screen at a fixed button size (not forced to exactly
      5) — the rest is reached by sliding sideways from anywhere on the
@@ -810,6 +826,7 @@
     </div>
   </div>
 </div>
+<a id="creditLink" href="https://ellectroniqa.com" target="_blank" rel="noopener">created by ellectroniqa</a>
 </div>
 
 <script>
